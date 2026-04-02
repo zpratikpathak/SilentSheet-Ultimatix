@@ -75,7 +75,8 @@ def check_for_update() -> None:
             notify(
                 "SilentSheet Update Available",
                 f"v{LOCAL_VERSION} → v{remote_version}. "
-                "Visit GitHub to download the latest version.",
+                "Click to open GitHub.",
+                launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix",
             )
             print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
     except Exception as e:
@@ -204,8 +205,8 @@ def _ico_to_png(ico_path: Path) -> Path:
     return png_path
 
 
-def notify(title: str, message: str, image_path: Path | None = None) -> None:
-    """Show a Windows toast notification."""
+def notify(title: str, message: str, image_path: Path | None = None, launch: str | None = None) -> None:
+    """Show a Windows toast notification. If *launch* is set, clicking it opens that URL."""
     if APP_ICON_FILE.exists():
         try:
             icon = str(_ico_to_png(APP_ICON_FILE))
@@ -221,6 +222,7 @@ def notify(title: str, message: str, image_path: Path | None = None) -> None:
         msg=message,
         duration="long",
         icon=icon,
+        launch=launch or "",
     )
     toast.show()
 
