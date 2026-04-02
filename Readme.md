@@ -48,6 +48,14 @@ uv run python setup_startup.py install    # Enable auto-run on login
 uv run python setup_startup.py uninstall  # Disable auto-run
 ```
 
+### Uninstall
+
+```powershell
+.\uninstall.ps1
+```
+
+Removes the startup entry, config, logs, and the virtual environment.
+
 ## How It Works
 
 1. Waits for internet connectivity
@@ -79,6 +87,7 @@ See `example.config.toml` for reference.
 ```
 ├── fill_timesheet.py      # Main automation script
 ├── setup.ps1              # Interactive setup
+├── uninstall.ps1          # Clean uninstall
 ├── setup_startup.py       # Windows Startup install/uninstall
 ├── config.toml            # Your config (gitignored)
 ├── example.config.toml    # Config template
