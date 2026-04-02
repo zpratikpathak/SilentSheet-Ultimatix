@@ -11,6 +11,7 @@ import time
 import tomllib
 from datetime import date
 from pathlib import Path
+from urllib.request import urlopen
 
 try:
     import winreg
@@ -43,6 +44,32 @@ with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
 EMPLOYEE_ID = _config["employee"]["EMPLOYEE_ID"]
 TASK_NAME = _config.get("timesheet", {}).get("task_name", "Development")
 CHARGE_TYPE = _config.get("timesheet", {}).get("charge_type", "Billable")
+
+# Version check against GitHub
+PYPROJECT_FILE = SCRIPT_DIR / "pyproject.toml"
+with open(PYPROJECT_FILE, "rb") as _pf:
+    LOCAL_VERSION = tomllib.load(_pf)["project"]["version"]
+GITHUB_PYPROJECT_URL = (
+    "https://raw.githubusercontent.com/"
+    "zpratikpathak/SilentSheet-Ultimatix/home/pyproject.toml"
+)
+
+
+def check_for_update() -> None:
+    """Fetch the remote pyproject.toml from GitHub and notify if a newer version exists."""
+    try:
+        with urlopen(GITHUB_PYPROJECT_URL, timeout=3) as resp:
+            remote_config = tomllib.loads(resp.read().decode())
+        remote_version = remote_config["project"]["version"]
+        if remote_version != LOCAL_VERSION:
+            notify(
+                "SilentSheet Update Available",
+                f"v{LOCAL_VERSION} → v{remote_version}. "
+                "Visit GitHub to download the latest version.",
+            )
+            print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
+    except Exception as e:
+        print(f"Version check skipped: {e}")
 
 
 def already_done_today() -> bool:
@@ -202,6 +229,8 @@ def main() -> None:
         notify("Timesheet - Error", "No internet after 10 minutes. Aborting.")
         return
     print("Internet available.")
+
+    check_for_update()
 
     # Set up Chrome browser
     chrome_options = Options()
