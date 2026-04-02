@@ -1,0 +1,4 @@
+pillow>=11.2.1
+pratikpathak>=2.3.5
+selenium>=4.41.0
+winotify>=1.1.0

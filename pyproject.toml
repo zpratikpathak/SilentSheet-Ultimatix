@@ -1,0 +1,15 @@
+[project]
+name = "silentsheet"
+version = "0.1.0"
+description = "Automate timesheet login via EasyAuth"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=11.2.1",
+    "pratikpathak>=2.3.5",
+    "selenium>=4.41.0",
+    "winotify>=1.1.0",
+]
+
+[project.scripts]
+silentsheet = "fill_timesheet:main"

@@ -1,0 +1,11 @@
+[employee]
+# Your Employee ID
+EMPLOYEE_ID = "YOUR_EMPLOYEE_ID_HERE"
+
+[timesheet]
+# The task name as it appears in the timesheet grid (e.g., "Development", "Meeting")
+task_name = "Development"
+
+# The charge type for the task. 
+# Supported values typically include: "Billable", "Non Billable"
+charge_type = "Billable"
