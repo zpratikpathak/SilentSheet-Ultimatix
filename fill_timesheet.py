@@ -374,9 +374,23 @@ def main() -> None:
                 )
             )
             submit_button.click()
-            print("Timesheet submitted!")
-            mark_done_today()
-            notify("Timesheet", "Filled 9 hours and submitted successfully!")
+            print("Timesheet submitted! Verifying...")
+            time.sleep(3)
+
+            driver.refresh()
+            verified_input = wait.until(find_task_effort_input)
+            verified_value = verified_input.get_attribute("value").strip()
+            if verified_value == "9":
+                print("Verification passed: 9 hours confirmed.")
+                mark_done_today()
+                notify("Timesheet", "Filled 9 hours successfully!")
+            else:
+                print(f"Verification failed: expected '9', got '{verified_value}'")
+                notify(
+                    "Timesheet - Warning",
+                    f"Submitted but verification found '{verified_value}' hours instead of 9. "
+                    "Please check manually.",
+                )
 
         time.sleep(3)
 
