@@ -4,6 +4,7 @@ Designed to run on Windows startup. Tracks completion per day so it only
 runs once. Shows a Windows toast notification with the EasyAuth number.
 """
 
+import logging
 import socket
 import sys
 import tempfile
@@ -54,6 +55,15 @@ GITHUB_PYPROJECT_URL = (
     "zpratikpathak/SilentSheet-Ultimatix/home/pyproject.toml"
 )
 
+LOG_FILE = SCRIPT_DIR / "silentsheet.log"
+logger = logging.getLogger("silentsheet")
+logger.setLevel(logging.ERROR)
+_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+_file_handler.setFormatter(
+    logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+)
+logger.addHandler(_file_handler)
+
 
 def check_for_update() -> None:
     """Fetch the remote pyproject.toml from GitHub and notify if a newer version exists."""
@@ -69,6 +79,7 @@ def check_for_update() -> None:
             )
             print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
     except Exception as e:
+        logger.error("Version check failed: %s", e)
         print(f"Version check skipped: {e}")
 
 
@@ -294,6 +305,7 @@ def main() -> None:
             try:
                 auth_image_path = create_auth_number_image(auth_number)
             except Exception as image_error:
+                logger.error("Could not create EasyAuth image: %s", image_error)
                 print(f"Warning: Could not create EasyAuth image: {image_error}")
 
         notify(
@@ -385,6 +397,7 @@ def main() -> None:
                 mark_done_today()
                 notify("Timesheet", "Filled 9 hours successfully!")
             else:
+                logger.error("Verification failed: expected '9', got '%s'", verified_value)
                 print(f"Verification failed: expected '9', got '{verified_value}'")
                 notify(
                     "Timesheet - Warning",
@@ -395,6 +408,7 @@ def main() -> None:
         time.sleep(3)
 
     except Exception as e:
+        logger.exception("Timesheet automation failed")
         print(f"Error: {e}", file=sys.stderr)
         notify("Timesheet - Error", str(e))
         if not headless:
