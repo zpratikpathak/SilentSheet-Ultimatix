@@ -153,10 +153,26 @@ def create_auth_number_image(auth_number: str) -> Path:
     return image_path
 
 
+def _ico_to_png(ico_path: Path) -> Path:
+    """Convert an ICO file to PNG so toast notifications render it at full size."""
+    png_path = Path(tempfile.gettempdir()) / f"{ico_path.stem}.png"
+    if png_path.exists() and png_path.stat().st_mtime >= ico_path.stat().st_mtime:
+        return png_path
+    img = Image.open(ico_path)
+    largest = max(img.info.get("sizes", [(img.width, img.height)]))
+    img.size = largest
+    img = img.resize(largest, Image.LANCZOS)
+    img.save(png_path, format="PNG")
+    return png_path
+
+
 def notify(title: str, message: str, image_path: Path | None = None) -> None:
     """Show a Windows toast notification."""
     if APP_ICON_FILE.exists():
-        icon = str(APP_ICON_FILE.resolve())
+        try:
+            icon = str(_ico_to_png(APP_ICON_FILE))
+        except Exception:
+            icon = str(APP_ICON_FILE.resolve())
     elif image_path:
         icon = str(image_path.resolve())
     else:
