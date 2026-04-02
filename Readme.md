@@ -24,9 +24,6 @@ Automates daily timesheet entry on Ultimatix. Logs in via EasyAuth, fills 9 hour
 The easiest way to set up the project is to use the provided PowerShell interactive setup script. This script checks prerequisites, sets up the Python environment (using `uv` or `pip`), generates your configuration file, and optionally enables the Windows startup auto-fill task.
 
 ```powershell
-# Clone / navigate to the project folder
-cd C:\Users\pxp354\Desktop\Timesheet
-
 # Run the interactive setup script
 .\setup.ps1
 ```
