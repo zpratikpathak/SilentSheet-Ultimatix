@@ -1,3 +1,50 @@
+function Select-Option {
+    param(
+        [string]$Prompt,
+        [string[]]$Options,
+        [int]$Default = 0
+    )
+    Write-Host "$Prompt (Up/Down to move, Enter to select):"
+    $sel = $Default
+    $esc = [char]27
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        if ($i -eq $sel) {
+            Write-Host "  > $($Options[$i])" -ForegroundColor Cyan
+        } else {
+            Write-Host "    $($Options[$i])"
+        }
+    }
+    while ($true) {
+        $key = [System.Console]::ReadKey($true)
+        if ($key.Key -eq [System.ConsoleKey]::UpArrow) {
+            if ($sel -gt 0) { $sel-- }
+        } elseif ($key.Key -eq [System.ConsoleKey]::DownArrow) {
+            if ($sel -lt ($Options.Count - 1)) { $sel++ }
+        } elseif ($key.Key -eq [System.ConsoleKey]::Enter) {
+            break
+        } else { continue }
+        Write-Host "$esc[$($Options.Count)A" -NoNewline
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            Write-Host "$esc[2K" -NoNewline
+            if ($i -eq $sel) {
+                Write-Host "  > $($Options[$i])" -ForegroundColor Cyan
+            } else {
+                Write-Host "    $($Options[$i])"
+            }
+        }
+    }
+    return $sel
+}
+
+function Select-YesNo {
+    param(
+        [string]$Prompt,
+        [int]$Default = 0
+    )
+    $idx = Select-Option -Prompt $Prompt -Options @("Yes", "No") -Default $Default
+    return $idx -eq 0
+}
+
 Write-Host "=== SilentSheet Setup ==="
 Write-Host "Checking prerequisites..."
 
@@ -16,8 +63,7 @@ $psDir = "C:\Windows\System32\WindowsPowerShell\v1.0"
 if ($env:PATH -notlike "*$psDir*") {
     Write-Warning "PowerShell directory ($psDir) is not in your System PATH."
     Write-Warning "This is required for toast notifications."
-    $addPs = Read-Host "Add it to your User PATH? (y/n)"
-    if ($addPs -match "^y(es)?$") {
+    if (Select-YesNo "Add it to your User PATH?") {
         $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
         if ($userPath -notlike "*$psDir*") {
             [Environment]::SetEnvironmentVariable("PATH", "$userPath;$psDir", "User")
@@ -71,8 +117,7 @@ if ($missing.Count -gt 0) {
         exit 1
     }
 
-    $installChoice = Read-Host "Would you like to install them using winget? (y/n)"
-    if ($installChoice -match "^y(es)?$") {
+    if (Select-YesNo "Would you like to install them using winget?") {
         foreach ($m in $missing) {
             Write-Host "Installing $($m.Name) (winget install $($m.WingetId))..." -ForegroundColor Cyan
             winget install --id $m.WingetId --accept-source-agreements --accept-package-agreements
@@ -138,8 +183,7 @@ Write-Host "[x] Dependencies installed successfully."
 Write-Host "`n=== Configuration File Setup (config.toml) ==="
 if (Test-Path "config.toml") {
     Write-Host "Existing config.toml found."
-    $overwrite = Read-Host "Overwrite it? (y/n)"
-    if ($overwrite -notmatch "^y(es)?$") {
+    if (-not (Select-YesNo "Overwrite it?" -Default 1)) {
         Write-Host "Keeping existing config.toml."
         $skipConfig = $true
     } else {
@@ -161,46 +205,8 @@ do {
 $taskName = Read-Host "Enter the Task Name [Default: Development]"
 if ([string]::IsNullOrWhiteSpace($taskName)) { $taskName = "Development" }
 
-Write-Host "Billable or Non Billable? (Up/Down to move, Enter to select):"
-
 $chargeOptions = @("Billable", "Non Billable")
-$selectedIndex = 0
-$esc = [char]27
-
-# Draw menu initially
-for ($i = 0; $i -lt $chargeOptions.Count; $i++) {
-    if ($i -eq $selectedIndex) {
-        Write-Host "  > $($chargeOptions[$i])" -ForegroundColor Cyan
-    } else {
-        Write-Host "    $($chargeOptions[$i])"
-    }
-}
-
-while ($true) {
-    $key = [System.Console]::ReadKey($true)
-
-    if ($key.Key -eq [System.ConsoleKey]::UpArrow) {
-        if ($selectedIndex -gt 0) { $selectedIndex-- }
-    } elseif ($key.Key -eq [System.ConsoleKey]::DownArrow) {
-        if ($selectedIndex -lt ($chargeOptions.Count - 1)) { $selectedIndex++ }
-    } elseif ($key.Key -eq [System.ConsoleKey]::Enter) {
-        break
-    } else {
-        continue
-    }
-
-    # Move cursor up by the number of options and redraw
-    Write-Host "$esc[$($chargeOptions.Count)A" -NoNewline
-    for ($i = 0; $i -lt $chargeOptions.Count; $i++) {
-        Write-Host "$esc[2K" -NoNewline
-        if ($i -eq $selectedIndex) {
-            Write-Host "  > $($chargeOptions[$i])" -ForegroundColor Cyan
-        } else {
-            Write-Host "    $($chargeOptions[$i])"
-        }
-    }
-}
-
+$selectedIndex = Select-Option -Prompt "Billable or Non Billable?" -Options $chargeOptions
 $chargeType = $chargeOptions[$selectedIndex]
 Write-Host ("Selected: " + $chargeType)
 
@@ -222,8 +228,8 @@ Write-Host "[x] config.toml generated."
 } # end if (-not $skipConfig)
 
 $startupEnabled = $false
-$enableAuto = Read-Host "`nDo you want to enable auto fill timesheet on Windows startup? (y/n)"
-if ($enableAuto -match "^y(es)?$") {
+Write-Host ""
+if (Select-YesNo "Enable auto fill timesheet on Windows startup?") {
     Write-Host "Installing startup script..."
     if ($UseUv) {
         uv run python setup_startup.py install
@@ -244,8 +250,8 @@ if ($enableAuto -match "^y(es)?$") {
     }
 }
 
-$runNow = Read-Host "`nDo you want to run SilentSheet now in the background? (y/n)"
-if ($runNow -match "^y(es)?$") {
+Write-Host ""
+if (Select-YesNo "Run SilentSheet now in the background?") {
     Write-Host "Starting SilentSheet in the background..."
     if ($UseUv) {
         Start-Process -FilePath "uv" -ArgumentList "run", "pythonw", "fill_timesheet.py", "--headless" -WindowStyle Hidden
