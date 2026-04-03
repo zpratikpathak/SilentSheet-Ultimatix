@@ -1,13 +1,15 @@
 Write-Host "=== SilentSheet Setup ==="
 Write-Host "Checking prerequisites..."
 
+$missing = @()
+
 # Check for Python
-if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
-    Write-Warning "Python is not installed or not in your System PATH."
-    Write-Warning "Please install Python from https://www.python.org/downloads/ and run this script again."
-    exit 1
+if (Get-Command "python" -ErrorAction SilentlyContinue) {
+    Write-Host "[x] Python is installed."
+} else {
+    Write-Host "[ ] Python is NOT installed." -ForegroundColor Red
+    $missing += @{ Name = "Python"; WingetId = "Python.Python.3.13" }
 }
-Write-Host "[x] Python is installed."
 
 # Check for PowerShell (Windows PowerShell) in PATH
 $psDir = "C:\Windows\System32\WindowsPowerShell\v1.0"
@@ -42,9 +44,8 @@ foreach ($p in $chromePaths) {
 if ($chromeFound) {
     Write-Host "[x] Google Chrome is installed."
 } else {
-    Write-Warning "Google Chrome was not found in the standard install locations."
-    Write-Warning "SilentSheet requires Chrome. Please install it from https://www.google.com/chrome/"
-    exit 1
+    Write-Host "[ ] Google Chrome is NOT installed." -ForegroundColor Red
+    $missing += @{ Name = "Google Chrome"; WingetId = "Google.Chrome" }
 }
 
 # Check for uv
@@ -54,6 +55,61 @@ if (Get-Command "uv" -ErrorAction SilentlyContinue) {
     $UseUv = $true
 } else {
     Write-Host "[!] uv is not installed. Falling back to standard pip."
+}
+
+# Offer to install missing software via winget
+if ($missing.Count -gt 0) {
+    Write-Host ""
+    Write-Host "The following software is missing:" -ForegroundColor Yellow
+    foreach ($m in $missing) {
+        Write-Host "  - $($m.Name)" -ForegroundColor Yellow
+    }
+    Write-Host ""
+
+    if (!(Get-Command "winget" -ErrorAction SilentlyContinue)) {
+        Write-Warning "winget is not available on this system. Please install the missing software manually and re-run this script."
+        exit 1
+    }
+
+    $installChoice = Read-Host "Would you like to install them using winget? (y/n)"
+    if ($installChoice -match "^y(es)?$") {
+        foreach ($m in $missing) {
+            Write-Host "Installing $($m.Name) (winget install $($m.WingetId))..." -ForegroundColor Cyan
+            winget install --id $m.WingetId --accept-source-agreements --accept-package-agreements
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Failed to install $($m.Name). You may need to install it manually."
+            } else {
+                Write-Host "[x] $($m.Name) installed successfully." -ForegroundColor Green
+            }
+        }
+
+        # Refresh PATH so newly installed tools are available in this session
+        $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+        $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+        $env:PATH = "$machinePath;$userPath"
+
+        # Re-check critical prerequisites after installation
+        if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
+            Write-Warning "Python is still not found in PATH after installation."
+            Write-Warning "Please restart your terminal or add Python to PATH manually, then re-run this script."
+            exit 1
+        }
+
+        $chromeFound = $false
+        foreach ($p in $chromePaths) {
+            if (Test-Path $p) { $chromeFound = $true; break }
+        }
+        if (-not $chromeFound) {
+            Write-Warning "Google Chrome is still not found after installation."
+            Write-Warning "Please restart your terminal and re-run this script."
+            exit 1
+        }
+
+        Write-Host "[x] All prerequisites are now installed." -ForegroundColor Green
+    } else {
+        Write-Warning "Cannot continue without: $(($missing | ForEach-Object { $_.Name }) -join ', '). Exiting."
+        exit 1
+    }
 }
 
 Write-Host "`n=== Setting up Virtual Environment and Dependencies ==="
