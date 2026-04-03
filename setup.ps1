@@ -259,3 +259,5 @@ Write-Host "  Pkg Manager  : $(if ($UseUv) { 'uv' } else { 'pip' })"
 Write-Host "  Auto Startup : $(if ($startupEnabled) { 'Enabled' } else { 'Disabled' })"
 Write-Host ""
 Write-Host "[+] Setup complete!" -ForegroundColor Green
+Write-Host ""
+Read-Host "Press Enter to exit"
