@@ -231,6 +231,17 @@ if ($enableAuto -match "^y(es)?$") {
         .\.venv\Scripts\python.exe setup_startup.py install
     }
     $startupEnabled = $true
+} else {
+    $startupVbs = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\launch_silentsheet.vbs"
+    if (Test-Path $startupVbs) {
+        Write-Host "Existing startup entry found. Removing it..."
+        if ($UseUv) {
+            uv run python setup_startup.py uninstall
+        } else {
+            .\.venv\Scripts\python.exe setup_startup.py uninstall
+        }
+        Write-Host "[x] Startup entry removed."
+    }
 }
 
 $runNow = Read-Host "`nDo you want to run SilentSheet now in the background? (y/n)"
