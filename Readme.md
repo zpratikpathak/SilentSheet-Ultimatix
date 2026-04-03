@@ -56,6 +56,21 @@ uv run python setup_startup.py uninstall  # Disable auto-run
 
 Removes the startup entry, config, logs, and the virtual environment.
 
+## Updating
+
+To update SilentSheet to the latest version:
+
+1. Download the latest version from GitHub and extract it in a folder:
+
+   <img src="images/Download.gif" alt="Download SilentSheet" width="200" />
+
+2. Open the powershell terminal in the folder and re-run the setup script to install any new dependencies:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\setup.ps1
+   ```
+   Your existing `config.toml` will be preserved — the setup only prompts for config if one doesn't already exist.
+
+
 ## How It Works
 
 1. Waits for internet connectivity
