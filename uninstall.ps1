@@ -8,12 +8,19 @@ if (Get-Command "uv" -ErrorAction SilentlyContinue) {
 
 # Remove from Windows Startup and Task Scheduler
 Write-Host "Removing auto-run entries..."
-if ($UseUv) {
-    uv run python setup_startup.py uninstall-all
-} else {
-    .\.venv\Scripts\python.exe setup_startup.py uninstall-all
+if (Test-Path ".venv") {
+    if ($UseUv) {
+        uv run python setup_startup.py uninstall-all
+    } else {
+        .\.venv\Scripts\python.exe setup_startup.py uninstall-all
+    }
 }
-# Defensive fallback: remove scheduled task directly in case the Python env is broken
+# Direct cleanup in case the Python env is missing or broken
+$startupVbs = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\launch_silentsheet.vbs"
+if (Test-Path $startupVbs) {
+    Remove-Item $startupVbs -Force
+    Write-Host "[x] Removed startup VBS entry."
+}
 schtasks /delete /tn "SilentSheet" /f 2>$null | Out-Null
 
 # Remove generated files

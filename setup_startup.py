@@ -45,8 +45,6 @@ def uninstall_startup() -> None:
         SHORTCUT_DEST.unlink()
         print(f"Removed: {SHORTCUT_DEST}")
         print("SilentSheet will no longer run on startup.")
-    else:
-        print("Not currently installed in Startup folder.")
 
 
 # ---------------------------------------------------------------------------
@@ -137,11 +135,8 @@ def uninstall_logon() -> None:
     )
     if result.returncode == 0:
         print(f"Scheduled task '{SCHED_TASK_NAME}' removed.")
-    else:
-        if "cannot find" in result.stderr.lower() or "does not exist" in result.stderr.lower():
-            print("Scheduled task not found (already removed).")
-        else:
-            print(f"Failed to remove scheduled task: {result.stderr.strip()}")
+    elif "cannot find" not in result.stderr.lower() and "does not exist" not in result.stderr.lower():
+        print(f"Failed to remove scheduled task: {result.stderr.strip()}")
 
 
 # ---------------------------------------------------------------------------

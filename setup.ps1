@@ -196,7 +196,7 @@ if (Test-Path "config.toml") {
 if (-not $skipConfig) {
 
 do {
-    $employeeId = (Read-Host "Enter your Employee ID").Trim()
+    $employeeId = (Read-Host "Enter your Employee ID/Username").Trim()
     if ([string]::IsNullOrWhiteSpace($employeeId)) {
         Write-Warning "Employee ID cannot be empty. Please try again."
     }
