@@ -19,6 +19,7 @@ config.toml
 .silentsheet_state.json
 silentsheet.log
 silentsheet_launcher.vbs
+silentsheet_retry.vbs
 
 # IDE
 .vscode/

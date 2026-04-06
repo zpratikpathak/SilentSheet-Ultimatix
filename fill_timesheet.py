@@ -26,6 +26,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException
 from winotify import Notification
 
 import pratikpathak
@@ -82,6 +83,7 @@ def check_for_update() -> None:
                 duration="short",
             )
             print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
+            time.sleep(7)
     except Exception as e:
         logger.error("Version check failed: %s", e)
         print(f"Version check skipped: {e}")
@@ -241,6 +243,8 @@ def notify(
     image_path: Path | None = None,
     launch: str | None = None,
     duration: str = "long",
+    action_label: str | None = None,
+    action_launch: str | None = None,
 ) -> None:
     """Show a Windows toast notification. If *launch* is set, clicking it opens that URL."""
     if APP_ICON_FILE.exists():
@@ -260,6 +264,8 @@ def notify(
         icon=icon,
         launch=launch or "",
     )
+    if action_label and action_launch:
+        toast.add_actions(label=action_label, launch=action_launch)
     toast.show()
 
 
@@ -354,8 +360,22 @@ def main() -> None:
 
         # Wait for the user to approve on their device and the page to proceed
         print("Waiting for authentication to complete...")
-        wait_for_auth = WebDriverWait(driver, 120)  # 2 minutes to approve
-        wait_for_auth.until(EC.url_changes(driver.current_url))
+        wait_for_auth = WebDriverWait(driver, 65)  # 65 seconds to approve
+        try:
+            wait_for_auth.until(EC.url_changes(driver.current_url))
+        except TimeoutException:
+            raise TimeoutError("EasyAuth request timed out waiting for approval.")
+
+        # Check if we landed on the timeout error page
+        try:
+            timeout_div = driver.find_elements(By.ID, "timeout")
+            if timeout_div and timeout_div[0].is_displayed():
+                raise TimeoutError("EasyAuth request timed out.")
+        except Exception as e:
+            if isinstance(e, TimeoutError):
+                raise
+            pass
+
         print("Authentication successful! Redirected to:", driver.current_url)
 
         # Step 7: Wait for the timesheet page to load and fill effort hours
@@ -459,7 +479,37 @@ def main() -> None:
     except Exception as e:
         logger.exception("Timesheet automation failed")
         print(f"Error: {e}", file=sys.stderr)
-        notify("Timesheet - Error", str(e))
+        
+        if isinstance(e, TimeoutError) and "timed out" in str(e).lower():
+            startup_dir = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+            startup_vbs = startup_dir / "launch_silentsheet.vbs"
+            project_vbs = SCRIPT_DIR / "silentsheet_launcher.vbs"
+            retry_vbs = SCRIPT_DIR / "silentsheet_retry.vbs"
+
+            if startup_vbs.exists():
+                vbs_to_launch = startup_vbs
+            elif project_vbs.exists():
+                vbs_to_launch = project_vbs
+            else:
+                vbs_to_launch = retry_vbs
+                python_exe = SCRIPT_DIR / ".venv" / "Scripts" / "pythonw.exe"
+                script_path = SCRIPT_DIR / "fill_timesheet.py"
+                vbs_content = (
+                    'Set WshShell = CreateObject("WScript.Shell")\n'
+                    f'WshShell.CurrentDirectory = "{SCRIPT_DIR}"\n'
+                    f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --headless", 0, False\n'
+                )
+                vbs_to_launch.write_text(vbs_content)
+            
+            notify(
+                "Timesheet - Timeout",
+                "EasyAuth request timed out. Click Retry to try again.",
+                action_label="Retry",
+                action_launch=f"file:///{vbs_to_launch.as_posix()}",
+            )
+        else:
+            notify("Timesheet - Error", str(e))
+            
         if not headless:
             input("Press Enter to close the browser...")
     finally:
