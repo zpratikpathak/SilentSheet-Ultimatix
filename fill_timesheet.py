@@ -241,12 +241,6 @@ def notify(
 def main() -> None:
     headless = "--headless" in sys.argv
 
-    # Skip if already filled today
-    if already_done_today():
-        print("Timesheet already filled today. Exiting.")
-        notify("Timesheet", "Already filled for today. No action needed.")
-        return
-
     # Wait for internet connectivity (ethernet may not be plugged in yet)
     print("Waiting for internet...")
     if not wait_for_internet():
@@ -255,6 +249,12 @@ def main() -> None:
     print("Internet available.")
 
     check_for_update()
+
+    # Skip if already filled today
+    if already_done_today():
+        print("Timesheet already filled today. Exiting.")
+        notify("Timesheet", "Already filled for today. No action needed.")
+        return
 
     # Set up Chrome browser
     chrome_options = Options()

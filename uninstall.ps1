@@ -24,7 +24,7 @@ if (Test-Path $startupVbs) {
 schtasks /delete /tn "SilentSheet" /f 2>$null | Out-Null
 
 # Remove generated files
-$filesToRemove = @("config.toml", ".timesheet_done", "silentsheet.log")
+$filesToRemove = @("config.toml", ".timesheet_done", "silentsheet.log", "silentsheet_launcher.vbs")
 foreach ($f in $filesToRemove) {
     if (Test-Path $f) {
         Remove-Item $f

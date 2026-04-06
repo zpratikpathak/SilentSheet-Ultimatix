@@ -18,6 +18,7 @@ config.toml
 # Runtime state
 .timesheet_done
 silentsheet.log
+silentsheet_launcher.vbs
 
 # IDE
 .vscode/

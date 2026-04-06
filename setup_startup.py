@@ -10,6 +10,7 @@ from pathlib import Path
 STARTUP_DIR = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
 PROJECT_DIR = Path(__file__).resolve().parent
 SHORTCUT_DEST = STARTUP_DIR / "launch_silentsheet.vbs"
+TASK_VBS_DEST = PROJECT_DIR / "silentsheet_launcher.vbs"
 SCHED_TASK_NAME = "SilentSheet"
 
 
@@ -59,10 +60,13 @@ def _get_current_user() -> str:
 
 
 def generate_task_xml() -> str:
-    """Build a Task Scheduler XML definition with logon and session-unlock triggers."""
+    """Build a Task Scheduler XML definition with logon and session-unlock triggers.
+
+    The action launches wscript.exe with a VBS wrapper that runs pythonw.exe
+    with window style 0 (hidden), preventing any console flash on unlock.
+    """
     user_id = _get_current_user()
-    python_exe = PROJECT_DIR / ".venv" / "Scripts" / "pythonw.exe"
-    script_path = PROJECT_DIR / "fill_timesheet.py"
+    wscript = r"C:\Windows\System32\wscript.exe"
 
     return f"""\
 <?xml version="1.0" encoding="UTF-16"?>
@@ -102,8 +106,8 @@ def generate_task_xml() -> str:
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>{python_exe}</Command>
-      <Arguments>"{script_path}" --headless</Arguments>
+      <Command>{wscript}</Command>
+      <Arguments>//B "{TASK_VBS_DEST}"</Arguments>
       <WorkingDirectory>{PROJECT_DIR}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -111,6 +115,7 @@ def generate_task_xml() -> str:
 
 
 def install_logon() -> None:
+    TASK_VBS_DEST.write_text(generate_vbs())
     xml_content = generate_task_xml()
     tmp_path = Path(tempfile.gettempdir()) / "silentsheet_task.xml"
     try:
@@ -137,6 +142,8 @@ def uninstall_logon() -> None:
         print(f"Scheduled task '{SCHED_TASK_NAME}' removed.")
     elif "cannot find" not in result.stderr.lower() and "does not exist" not in result.stderr.lower():
         print(f"Failed to remove scheduled task: {result.stderr.strip()}")
+    if TASK_VBS_DEST.exists():
+        TASK_VBS_DEST.unlink()
 
 
 # ---------------------------------------------------------------------------
