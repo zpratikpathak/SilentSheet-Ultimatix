@@ -4,7 +4,7 @@
 
 <h1 align="center">SilentSheet</h1>
 
-<p align="center">Auto-fill your Ultimatix timesheet on Windows startup. Logs in via EasyAuth, fills 9 hours, verifies, and submits.</p>
+<p align="center">Auto-fill your Ultimatix timesheet on Windows startup or login. Logs in via EasyAuth, fills 9 hours, verifies, and submits.</p>
 
 ---
 
@@ -29,7 +29,7 @@ The setup script will:
 1. Check prerequisites (Python, uv/pip)
 2. Create a virtual environment and install dependencies
 3. Prompt for your Employee ID, task name, and charge type
-4. Optionally register SilentSheet to run on Windows startup
+4. Choose an auto-run method: **Windows Startup** (for daily restart users), **Windows Login** (for sleep/lid-close users), or disable
 
 ## Manual Usage
 
@@ -41,12 +41,16 @@ uv run python fill_timesheet.py
 .\.venv\Scripts\python.exe fill_timesheet.py
 ```
 
-### Startup Management
+### Auto-Run Management
 
 ```powershell
-uv run python setup_startup.py install    # Enable auto-run on login
-uv run python setup_startup.py uninstall  # Disable auto-run
+uv run python setup_startup.py install-startup   # Run on boot (Startup folder)
+uv run python setup_startup.py install-logon     # Run on login & unlock (Task Scheduler)
+uv run python setup_startup.py uninstall-all     # Remove all auto-run entries
 ```
+
+**Windows Startup** places a script in the Startup folder -- runs once when you start your laptop.
+**Windows Login** creates a Task Scheduler task -- runs on every login and unlock, including after wake from sleep.
 
 ### Uninstall
 
@@ -54,13 +58,13 @@ uv run python setup_startup.py uninstall  # Disable auto-run
 .\uninstall.ps1
 ```
 
-Removes the startup entry, config, logs, and the virtual environment.
+Removes all auto-run entries (Startup folder and Task Scheduler), config, logs, and the virtual environment.
 
 ## Updating
 
 To update SilentSheet to the latest version:
 
-1. Download the latest version from GitHub and extract it in a folder:
+1. [Download the latest version from GitHub](https://github.com/zpratikpathak/SilentSheet-Ultimatix) and extract it in a folder:
 
    <img src="images/Download.gif" alt="Download SilentSheet" width="200" />
 
@@ -103,7 +107,7 @@ See `example.config.toml` for reference.
 ├── fill_timesheet.py      # Main automation script
 ├── setup.ps1              # Interactive setup
 ├── uninstall.ps1          # Clean uninstall
-├── setup_startup.py       # Windows Startup install/uninstall
+├── setup_startup.py       # Auto-run install/uninstall (Startup folder & Task Scheduler)
 ├── config.toml            # Your config (gitignored)
 ├── example.config.toml    # Config template
 ├── favicon.ico            # App icon for notifications

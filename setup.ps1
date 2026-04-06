@@ -227,26 +227,44 @@ Write-Host "[x] config.toml generated."
 
 } # end if (-not $skipConfig)
 
-$startupEnabled = $false
-Write-Host ""
-if (Select-YesNo "Enable auto fill timesheet on Windows startup?") {
-    Write-Host "Installing startup script..."
+Write-Host "`n=== Auto-Run Configuration ==="
+Write-Host "Choose how SilentSheet should automatically run:`n"
+Write-Host "  Windows Startup  - Runs when you start your laptop next day" -ForegroundColor White
+Write-Host "                     (Recommended if you shut down laptop daily)" -ForegroundColor DarkGray
+Write-Host "  Windows Login    - Runs on login and unlock next day" -ForegroundColor White
+Write-Host "                     (Recommended if you use sleep / close the lid)" -ForegroundColor DarkGray
+Write-Host "  Disable          - Do not auto-run`n" -ForegroundColor White
+
+$autoRunOptions = @("Windows Startup", "Windows Login", "Disable auto-run")
+$autoRunChoice = Select-Option -Prompt "Select auto-run method" -Options $autoRunOptions
+$autoRunLabel = "Disabled"
+
+function Run-SetupStartup {
+    param([string]$Action)
     if ($UseUv) {
-        uv run python setup_startup.py install
+        uv run python setup_startup.py $Action
     } else {
-        .\.venv\Scripts\python.exe setup_startup.py install
+        .\.venv\Scripts\python.exe setup_startup.py $Action
     }
-    $startupEnabled = $true
-} else {
-    $startupVbs = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\launch_silentsheet.vbs"
-    if (Test-Path $startupVbs) {
-        Write-Host "Existing startup entry found. Removing it..."
-        if ($UseUv) {
-            uv run python setup_startup.py uninstall
-        } else {
-            .\.venv\Scripts\python.exe setup_startup.py uninstall
-        }
-        Write-Host "[x] Startup entry removed."
+}
+
+switch ($autoRunChoice) {
+    0 {
+        Write-Host "Installing Windows Startup entry..."
+        Run-SetupStartup "install-startup"
+        Run-SetupStartup "uninstall-logon"
+        $autoRunLabel = "Windows Startup"
+    }
+    1 {
+        Write-Host "Installing Windows Login (Task Scheduler) entry..."
+        Run-SetupStartup "install-logon"
+        Run-SetupStartup "uninstall-startup"
+        $autoRunLabel = "Windows Login"
+    }
+    2 {
+        Write-Host "Disabling auto-run..."
+        Run-SetupStartup "uninstall-all"
+        $autoRunLabel = "Disabled"
     }
 }
 
@@ -273,7 +291,7 @@ if (Test-Path "config.toml") {
     Write-Host "  Charge Type  : $sumCharge"
 }
 Write-Host "  Pkg Manager  : $(if ($UseUv) { 'uv' } else { 'pip' })"
-Write-Host "  Auto Startup : $(if ($startupEnabled) { 'Enabled' } else { 'Disabled' })"
+Write-Host "  Auto-Run     : $autoRunLabel"
 Write-Host ""
 Write-Host "[+] Setup complete!" -ForegroundColor Green
 Write-Host ""

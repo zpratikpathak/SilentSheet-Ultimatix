@@ -1,12 +1,21 @@
-"""One-time script to add/remove SilentSheet from Windows Startup."""
+"""Add/remove SilentSheet from Windows Startup folder or Task Scheduler."""
 
+import getpass
+import os
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 STARTUP_DIR = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
 PROJECT_DIR = Path(__file__).resolve().parent
 SHORTCUT_DEST = STARTUP_DIR / "launch_silentsheet.vbs"
+SCHED_TASK_NAME = "SilentSheet"
 
+
+# ---------------------------------------------------------------------------
+# Startup folder method (existing)
+# ---------------------------------------------------------------------------
 
 def generate_vbs() -> str:
     """Generate VBS content with paths based on the current machine."""
@@ -22,7 +31,7 @@ def generate_vbs() -> str:
     )
 
 
-def install() -> None:
+def install_startup() -> None:
     if SHORTCUT_DEST.exists():
         print("Already installed in Startup folder.")
         return
@@ -31,7 +40,7 @@ def install() -> None:
     print("SilentSheet will now run automatically on next login.")
 
 
-def uninstall() -> None:
+def uninstall_startup() -> None:
     if SHORTCUT_DEST.exists():
         SHORTCUT_DEST.unlink()
         print(f"Removed: {SHORTCUT_DEST}")
@@ -39,12 +48,120 @@ def uninstall() -> None:
     else:
         print("Not currently installed in Startup folder.")
 
+
+# ---------------------------------------------------------------------------
+# Task Scheduler method (logon + session unlock)
+# ---------------------------------------------------------------------------
+
+def _get_current_user() -> str:
+    """Return DOMAIN\\Username for the current user."""
+    domain = os.environ.get("USERDOMAIN", "")
+    username = getpass.getuser()
+    return f"{domain}\\{username}" if domain else username
+
+
+def generate_task_xml() -> str:
+    """Build a Task Scheduler XML definition with logon and session-unlock triggers."""
+    user_id = _get_current_user()
+    python_exe = PROJECT_DIR / ".venv" / "Scripts" / "pythonw.exe"
+    script_path = PROJECT_DIR / "fill_timesheet.py"
+
+    return f"""\
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>SilentSheet - automatic timesheet fill on logon and unlock</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user_id}</UserId>
+    </LogonTrigger>
+    <SessionStateChangeTrigger>
+      <Enabled>true</Enabled>
+      <UserId>{user_id}</UserId>
+      <StateChange>SessionUnlock</StateChange>
+    </SessionStateChangeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>{user_id}</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{python_exe}</Command>
+      <Arguments>"{script_path}" --headless</Arguments>
+      <WorkingDirectory>{PROJECT_DIR}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"""
+
+
+def install_logon() -> None:
+    xml_content = generate_task_xml()
+    tmp_path = Path(tempfile.gettempdir()) / "silentsheet_task.xml"
+    try:
+        tmp_path.write_text(xml_content, encoding="utf-16")
+        result = subprocess.run(
+            ["schtasks", "/create", "/tn", SCHED_TASK_NAME, "/xml", str(tmp_path), "/f"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print(f"Scheduled task '{SCHED_TASK_NAME}' created.")
+            print("SilentSheet will run on every logon and unlock (including wake from sleep).")
+        else:
+            print(f"Failed to create scheduled task: {result.stderr.strip()}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def uninstall_logon() -> None:
+    result = subprocess.run(
+        ["schtasks", "/delete", "/tn", SCHED_TASK_NAME, "/f"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print(f"Scheduled task '{SCHED_TASK_NAME}' removed.")
+    else:
+        if "cannot find" in result.stderr.lower() or "does not exist" in result.stderr.lower():
+            print("Scheduled task not found (already removed).")
+        else:
+            print(f"Failed to remove scheduled task: {result.stderr.strip()}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+COMMANDS = {
+    "install":           lambda: install_startup(),
+    "install-startup":   install_startup,
+    "install-logon":     install_logon,
+    "uninstall-startup": uninstall_startup,
+    "uninstall-logon":   uninstall_logon,
+    "uninstall":         lambda: (uninstall_startup(), uninstall_logon()),
+    "uninstall-all":     lambda: (uninstall_startup(), uninstall_logon()),
+}
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2 or sys.argv[1] not in ("install", "uninstall"):
-        print("Usage: uv run python setup_startup.py [install|uninstall]")
+    if len(sys.argv) != 2 or sys.argv[1] not in COMMANDS:
+        cmds = " | ".join(COMMANDS)
+        print(f"Usage: python setup_startup.py [{cmds}]")
         sys.exit(1)
 
-    if sys.argv[1] == "install":
-        install()
-    else:
-        uninstall()
+    COMMANDS[sys.argv[1]]()

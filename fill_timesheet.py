@@ -78,7 +78,7 @@ def check_for_update() -> None:
             notify(
                 "SilentSheet Update Available",
                 f"v{LOCAL_VERSION} → v{remote_version}. " "Click to open GitHub.",
-                launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix",
+                launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix?tab=readme-ov-file#updating",
                 duration="short",
             )
             print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
