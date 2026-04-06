@@ -28,6 +28,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from winotify import Notification
 
 import pratikpathak
+
 pratikpathak.main()
 
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
@@ -60,7 +61,9 @@ logger = logging.getLogger("silentsheet")
 logger.setLevel(logging.ERROR)
 _file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
 _file_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
 )
 logger.addHandler(_file_handler)
 
@@ -68,15 +71,15 @@ logger.addHandler(_file_handler)
 def check_for_update() -> None:
     """Fetch the remote pyproject.toml from GitHub and notify if a newer version exists."""
     try:
-        with urlopen(GITHUB_PYPROJECT_URL, timeout=3) as resp:
+        with urlopen(GITHUB_PYPROJECT_URL, timeout=10) as resp:
             remote_config = tomllib.loads(resp.read().decode())
         remote_version = remote_config["project"]["version"]
         if remote_version != LOCAL_VERSION:
             notify(
                 "SilentSheet Update Available",
-                f"v{LOCAL_VERSION} → v{remote_version}. "
-                "Click to open GitHub.",
+                f"v{LOCAL_VERSION} → v{remote_version}. " "Click to open GitHub.",
                 launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix",
+                duration="short",
             )
             print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
     except Exception as e:
@@ -135,7 +138,9 @@ def create_auth_number_image(auth_number: str) -> Path:
     """Create an EasyAuth number icon that adapts to light/dark Windows theme."""
     image_path = Path(tempfile.gettempdir()) / f"silentsheet_easyauth_{auth_number}.png"
     size = 512
-    image = Image.new("RGB", (size, size), "#000000" if is_dark_mode_enabled() else "#FFFFFF")
+    image = Image.new(
+        "RGB", (size, size), "#000000" if is_dark_mode_enabled() else "#FFFFFF"
+    )
     draw = ImageDraw.Draw(image)
 
     if is_dark_mode_enabled():
@@ -205,7 +210,13 @@ def _ico_to_png(ico_path: Path) -> Path:
     return png_path
 
 
-def notify(title: str, message: str, image_path: Path | None = None, launch: str | None = None) -> None:
+def notify(
+    title: str,
+    message: str,
+    image_path: Path | None = None,
+    launch: str | None = None,
+    duration: str = "long",
+) -> None:
     """Show a Windows toast notification. If *launch* is set, clicking it opens that URL."""
     if APP_ICON_FILE.exists():
         try:
@@ -220,7 +231,7 @@ def notify(title: str, message: str, image_path: Path | None = None, launch: str
         app_id="SilentSheet",
         title=title,
         msg=message,
-        duration="long",
+        duration=duration,
         icon=icon,
         launch=launch or "",
     )
@@ -264,9 +275,7 @@ def main() -> None:
 
         # Step 2: Wait for redirect to login page and find the username input
         print("Waiting for login page...")
-        username_input = wait.until(
-            EC.presence_of_element_located((By.ID, "form1"))
-        )
+        username_input = wait.until(EC.presence_of_element_located((By.ID, "form1")))
 
         # Step 3: Type the employee ID
         print(f"Entering employee ID: {EMPLOYEE_ID}")
@@ -324,7 +333,7 @@ def main() -> None:
 
         # Step 7: Wait for the timesheet page to load and fill effort hours
         print("Waiting for timesheet page to load...")
-        
+
         column_idx = {
             "Billable": 2,
             "Non Billable": 3,
@@ -335,11 +344,14 @@ def main() -> None:
             "Evening Shift": 8,
             "On Call": 9,
         }.get(CHARGE_TYPE, 2)
-        
+
         # Search both Assigned and Unassigned task sections for the
         # configured task name and charge type column.
         def find_task_effort_input(d):
-            for prefix, section in (("effortAssign", "Assigned"), ("effortUnassign", "Unassigned")):
+            for prefix, section in (
+                ("effortAssign", "Assigned"),
+                ("effortUnassign", "Unassigned"),
+            ):
                 xpath = (
                     f"//tr[.//span[contains(@class, 'taskNameFont') and "
                     f"contains(normalize-space(text()), '{TASK_NAME}')]]"
@@ -347,10 +359,12 @@ def main() -> None:
                 )
                 for el in d.find_elements(By.XPATH, xpath):
                     if el.is_displayed():
-                        print(f"Found '{TASK_NAME}' in {section} Task section, charge type '{CHARGE_TYPE}'")
+                        print(
+                            f"Found '{TASK_NAME}' in {section} Task section, charge type '{CHARGE_TYPE}'"
+                        )
                         return el
             return False
-        
+
         try:
             effort_input = wait.until(find_task_effort_input)
         except Exception:
@@ -364,14 +378,18 @@ def main() -> None:
                     print(f"Using fallback input: {fid}")
                     break
             if effort_input is None:
-                raise Exception(f"No effort input found for task '{TASK_NAME}' with charge type '{CHARGE_TYPE}'")
+                raise Exception(
+                    f"No effort input found for task '{TASK_NAME}' with charge type '{CHARGE_TYPE}'"
+                )
 
         # Check current value before filling
         current_value = effort_input.get_attribute("value").strip()
         if current_value == "9":
             print("Effort already set to 9 hours. Skipping.")
             mark_done_today()
-            notify("Timesheet", "Already had 9 hours. Marked as done.")
+            notify(
+                "Timesheet", "Already had 9 hours. Marked as done.", duration="short"
+            )
         else:
             print(f"Current effort: '{current_value}'. Filling 9 hours...")
             effort_input.clear()
@@ -397,9 +415,11 @@ def main() -> None:
             if verified_value == "9":
                 print("Verification passed: 9 hours confirmed.")
                 mark_done_today()
-                notify("Timesheet", "Filled 9 hours successfully!")
+                notify("Timesheet", "Filled 9 hours successfully!", duration="short")
             else:
-                logger.error("Verification failed: expected '9', got '%s'", verified_value)
+                logger.error(
+                    "Verification failed: expected '9', got '%s'", verified_value
+                )
                 print(f"Verification failed: expected '9', got '{verified_value}'")
                 notify(
                     "Timesheet - Warning",
