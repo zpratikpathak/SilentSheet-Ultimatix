@@ -64,7 +64,7 @@ Removes all auto-run entries (Startup folder and Task Scheduler), config, logs, 
 
 To update SilentSheet to the latest version:
 
-1. [Download the latest version from GitHub](#silentsheet) and extract it in a folder:
+1. [Download the latest version from GitHub](#readme) and extract it in a folder:
 
    <img src="images/Download.gif" alt="Download SilentSheet" width="200" />
 
