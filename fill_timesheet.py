@@ -434,6 +434,7 @@ def main() -> None:
         if current_value == "9":
             print("Effort already set to 9 hours. Skipping.")
             mark_done_today()
+            mark_notified_today()
             notify(
                 "Timesheet", "Already had 9 hours. Marked as done.", duration="short"
             )
@@ -462,6 +463,7 @@ def main() -> None:
             if verified_value == "9":
                 print("Verification passed: 9 hours confirmed.")
                 mark_done_today()
+                mark_notified_today()
                 notify("Timesheet", "Filled 9 hours successfully!", duration="short")
             else:
                 logger.error(
