@@ -38,6 +38,17 @@ if (Test-Path ".venv") {
     Write-Host "[x] Removed .venv/"
 }
 
+# Remove AppUserModelId registry key
+$aumidPath = "HKCU:\Software\Classes\AppUserModelId\SilentSheet"
+if (Test-Path $aumidPath) {
+    try {
+        Remove-Item $aumidPath -Recurse -Force -ErrorAction Stop
+        Write-Host "[x] Removed AppUserModelId registry key."
+    } catch {
+        # Silently ignore registry/permission errors
+    }
+}
+
 Write-Host ""
 Write-Host "[+] SilentSheet has been uninstalled." -ForegroundColor Green
 Write-Host "You can safely delete this folder now."

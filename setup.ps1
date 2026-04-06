@@ -268,6 +268,26 @@ switch ($autoRunChoice) {
     }
 }
 
+# Register AppUserModelId for Windows Toast Notification Header Icon
+try {
+    $aumidPath = "HKCU:\Software\Classes\AppUserModelId\SilentSheet"
+    if (-not (Test-Path $aumidPath)) {
+        New-Item -Path $aumidPath -Force -ErrorAction Stop | Out-Null
+    }
+    $iconPath = "$PWD\favicon.ico"
+    Set-ItemProperty -Path $aumidPath -Name "DisplayName" -Value "SilentSheet" -ErrorAction Stop
+    Set-ItemProperty -Path $aumidPath -Name "IconUri" -Value $iconPath -ErrorAction Stop
+
+    # Clear Windows Notification Cache for this App ID so the new icon takes effect immediately
+    $cachePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\SilentSheet"
+    if (Test-Path $cachePath) {
+        Remove-Item $cachePath -Recurse -Force -ErrorAction Stop | Out-Null
+    }
+} catch {
+    # Silently log the issue and say you are ignoring it
+    Write-Warning "Failed to register AppUserModelId for Windows Toast Notification Header Icon. Continuing anyway."
+}
+
 Write-Host ""
 if (Select-YesNo "Run SilentSheet now in the background?") {
     Write-Host "Starting SilentSheet in the background..."
