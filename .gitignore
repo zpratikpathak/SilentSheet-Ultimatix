@@ -16,7 +16,7 @@ build/
 config.toml
 
 # Runtime state
-.timesheet_done
+.silentsheet_state.json
 silentsheet.log
 silentsheet_launcher.vbs
 

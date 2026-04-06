@@ -4,6 +4,7 @@ Designed to run on Windows startup. Tracks completion per day so it only
 runs once. Shows a Windows toast notification with the EasyAuth number.
 """
 
+import json
 import logging
 import socket
 import sys
@@ -34,9 +35,8 @@ pratikpathak.main()
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
 WAIT_TIMEOUT = 30  # seconds to wait for elements
 
-# File that stores the date of the last successful fill
 SCRIPT_DIR = Path(__file__).resolve().parent
-DONE_FILE = SCRIPT_DIR / ".timesheet_done"
+STATE_FILE = SCRIPT_DIR / ".silentsheet_state.json"
 CONFIG_FILE = SCRIPT_DIR / "config.toml"
 APP_ICON_FILE = SCRIPT_DIR / "favicon.ico"
 
@@ -87,18 +87,43 @@ def check_for_update() -> None:
         print(f"Version check skipped: {e}")
 
 
+def _load_state() -> dict:
+    """Load persisted state from the JSON file."""
+    if STATE_FILE.exists():
+        try:
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    return {}
+
+
+def _save_state(state: dict) -> None:
+    """Write state dict to the JSON file."""
+    STATE_FILE.write_text(json.dumps(state), encoding="utf-8")
+
+
 def already_done_today() -> bool:
     """Return True if the timesheet was already filled today."""
-    if DONE_FILE.exists():
-        stored = DONE_FILE.read_text().strip()
-        if stored == str(date.today()):
-            return True
-    return False
+    return _load_state().get("last_filled") == str(date.today())
+
+
+def already_notified_today() -> bool:
+    """Return True if the 'already filled' notification was shown today."""
+    return _load_state().get("last_notified") == str(date.today())
 
 
 def mark_done_today() -> None:
-    """Write today's date to the done file."""
-    DONE_FILE.write_text(str(date.today()))
+    """Record today as the last successful fill date."""
+    state = _load_state()
+    state["last_filled"] = str(date.today())
+    _save_state(state)
+
+
+def mark_notified_today() -> None:
+    """Record that the 'already filled' notification was shown today."""
+    state = _load_state()
+    state["last_notified"] = str(date.today())
+    _save_state(state)
 
 
 NETWORK_TIMEOUT = 600  # max seconds to wait for internet (10 minutes)
@@ -253,7 +278,9 @@ def main() -> None:
     # Skip if already filled today
     if already_done_today():
         print("Timesheet already filled today. Exiting.")
-        notify("Timesheet", "Already filled for today. No action needed.")
+        if not already_notified_today():
+            notify("Timesheet", "Already filled for today. No action needed.")
+            mark_notified_today()
         return
 
     # Set up Chrome browser
