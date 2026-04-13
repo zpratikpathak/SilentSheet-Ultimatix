@@ -71,22 +71,29 @@ logger.addHandler(_file_handler)
 
 def check_for_update() -> None:
     """Fetch the remote pyproject.toml from GitHub and notify if a newer version exists."""
-    try:
-        with urlopen(GITHUB_PYPROJECT_URL, timeout=10) as resp:
-            remote_config = tomllib.loads(resp.read().decode())
-        remote_version = remote_config["project"]["version"]
-        if remote_version != LOCAL_VERSION:
-            notify(
-                "SilentSheet Update Available",
-                f"v{LOCAL_VERSION} → v{remote_version}. " "Click to open GitHub.",
-                launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix?tab=readme-ov-file#updating",
-                duration="short",
-            )
-            print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
-            time.sleep(7)
-    except Exception as e:
-        logger.error("Version check failed: %s", e)
-        print(f"Version check skipped: {e}")
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            with urlopen(GITHUB_PYPROJECT_URL, timeout=10) as resp:
+                remote_config = tomllib.loads(resp.read().decode())
+            remote_version = remote_config["project"]["version"]
+            if remote_version != LOCAL_VERSION:
+                notify(
+                    "SilentSheet Update Available",
+                    f"v{LOCAL_VERSION} → v{remote_version}. " "Click to open GitHub.",
+                    launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix?tab=readme-ov-file#updating",
+                    duration="short",
+                )
+                print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
+                time.sleep(7)
+            return
+        except Exception as e:
+            last_err = e
+            if attempt < 3:
+                print(f"Version check attempt {attempt}/3 failed: {e}. Retrying in {5 * attempt}s...")
+                time.sleep(5 * attempt)
+    logger.error("Version check failed: %s", last_err)
+    print(f"Version check skipped: {last_err}")
 
 
 def _load_state() -> dict:
@@ -278,6 +285,7 @@ def main() -> None:
         notify("Timesheet - Error", "No internet after 10 minutes. Aborting.")
         return
     print("Internet available.")
+    time.sleep(5)  # brief pause to ensure stable connection
 
     check_for_update()
 
@@ -302,9 +310,31 @@ def main() -> None:
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
 
     try:
-        # Step 1: Open the timesheet URL
+        # Step 1: Open the timesheet URL (retry on transient network errors)
         print(f"Opening {TIMESHEET_URL} ...")
-        driver.get(TIMESHEET_URL)
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                driver.get(TIMESHEET_URL)
+                break
+            except Exception as nav_err:
+                err_msg = str(nav_err)
+                if attempt < max_retries and (
+                    "net::ERR_CONNECTION_RESET" in err_msg
+                    or "net::ERR_INTERNET_DISCONNECTED" in err_msg
+                    or "net::ERR_NAME_NOT_RESOLVED" in err_msg
+                    or "net::ERR_CONNECTION_REFUSED" in err_msg
+                    or "net::ERR_CONNECTION_TIMED_OUT" in err_msg
+                    or "net::ERR_NETWORK_CHANGED" in err_msg
+                ):
+                    wait_secs = 5 * attempt
+                    print(
+                        f"Connection error (attempt {attempt}/{max_retries}): "
+                        f"{err_msg.splitlines()[0]}. Retrying in {wait_secs}s..."
+                    )
+                    time.sleep(wait_secs)
+                else:
+                    raise
 
         # Step 2: Wait for redirect to login page and find the username input
         print("Waiting for login page...")
