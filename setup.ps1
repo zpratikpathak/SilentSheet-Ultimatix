@@ -161,20 +161,28 @@ Write-Host "`n=== Setting up Virtual Environment and Dependencies ==="
 if ($UseUv) {
     Write-Host "Creating virtual environment with uv..."
     uv venv
-    Write-Host "Installing dependencies with uv..."
+    Write-Host "Installing dependencies from local packages with uv..."
     uv pip install --no-index --find-links=packages -r requirements.txt
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Dependency installation failed. Check your network connection and try again."
-        exit 1
+        Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+        uv pip install -r requirements.txt
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Online dependency installation failed. Check your network connection and try again."
+            exit 1
+        }
     }
 } else {
     Write-Host "Creating virtual environment with python -m venv..."
     python -m venv .venv
-    Write-Host "Installing dependencies with pip..."
+    Write-Host "Installing dependencies from local packages with pip..."
     .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Dependency installation failed. Check your network connection and try again."
-        exit 1
+        Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+        .\.venv\Scripts\pip.exe install -r requirements.txt
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Online dependency installation failed. Check your network connection and try again."
+            exit 1
+        }
     }
 }
 Write-Host "[x] Dependencies installed successfully."
@@ -238,7 +246,7 @@ $autoRunOptions = @("Windows Startup", "Windows Login", "Disable auto-run")
 $autoRunChoice = Select-Option -Prompt "Select auto-run method" -Options $autoRunOptions
 $autoRunLabel = "Disabled"
 
-function Run-SetupStartup {
+function Invoke-SetupStartup {
     param([string]$Action)
     if ($UseUv) {
         uv run python setup_startup.py $Action
@@ -250,19 +258,19 @@ function Run-SetupStartup {
 switch ($autoRunChoice) {
     0 {
         Write-Host "Installing Windows Startup entry..."
-        Run-SetupStartup "install-startup"
-        Run-SetupStartup "uninstall-logon"
+        Invoke-SetupStartup "install-startup"
+        Invoke-SetupStartup "uninstall-logon"
         $autoRunLabel = "Windows Startup"
     }
     1 {
         Write-Host "Installing Windows Login (Task Scheduler) entry..."
-        Run-SetupStartup "install-logon"
-        Run-SetupStartup "uninstall-startup"
+        Invoke-SetupStartup "install-logon"
+        Invoke-SetupStartup "uninstall-startup"
         $autoRunLabel = "Windows Login"
     }
     2 {
         Write-Host "Disabling auto-run..."
-        Run-SetupStartup "uninstall-all"
+        Invoke-SetupStartup "uninstall-all"
         $autoRunLabel = "Disabled"
     }
 }
