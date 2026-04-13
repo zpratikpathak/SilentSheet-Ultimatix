@@ -162,7 +162,7 @@ if ($UseUv) {
     Write-Host "Creating virtual environment with uv..."
     uv venv
     Write-Host "Installing dependencies with uv..."
-    uv sync
+    uv pip install --no-index --find-links=packages -r requirements.txt
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Dependency installation failed. Check your network connection and try again."
         exit 1
@@ -171,8 +171,7 @@ if ($UseUv) {
     Write-Host "Creating virtual environment with python -m venv..."
     python -m venv .venv
     Write-Host "Installing dependencies with pip..."
-    .\.venv\Scripts\python.exe -m pip install --upgrade pip
-    .\.venv\Scripts\pip.exe install -r requirements.txt
+    .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Dependency installation failed. Check your network connection and try again."
         exit 1
