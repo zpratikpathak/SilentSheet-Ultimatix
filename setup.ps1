@@ -249,7 +249,7 @@ $autoRunLabel = "Disabled"
 function Invoke-SetupStartup {
     param([string]$Action)
     if ($UseUv) {
-        uv run python setup_startup.py $Action
+        uv run --no-sync python setup_startup.py $Action
     } else {
         .\.venv\Scripts\python.exe setup_startup.py $Action
     }
