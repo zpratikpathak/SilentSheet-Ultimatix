@@ -38,7 +38,7 @@ def install_startup() -> None:
         return
     SHORTCUT_DEST.write_text(generate_vbs())
     print(f"Installed: {SHORTCUT_DEST}")
-    print("SilentSheet will now run automatically on next login.")
+    print("SilentSheet will now automatically fill your timesheet in background.")
 
 
 def uninstall_startup() -> None:
@@ -126,7 +126,7 @@ def install_logon() -> None:
         )
         if result.returncode == 0:
             print(f"Scheduled task '{SCHED_TASK_NAME}' created.")
-            print("SilentSheet will run on every logon and unlock (including wake from sleep).")
+            print("SilentSheet will now automatically fill your timesheet in background.")
         else:
             print(f"Failed to create scheduled task: {result.stderr.strip()}")
     finally:

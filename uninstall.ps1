@@ -23,11 +23,11 @@ if (Test-Path $startupVbs) {
 }
 schtasks /delete /tn "SilentSheet" /f 2>$null | Out-Null
 
-# Remove generated files
-$filesToRemove = @("config.toml", ".silentsheet_state.json", ".timesheet_done", "silentsheet.log", "silentsheet_launcher.vbs", "silentsheet_retry.vbs")
+# Remove generated files and packages
+$filesToRemove = @("config.toml", ".silentsheet_state.json", ".timesheet_done", "silentsheet.log", "silentsheet_launcher.vbs", "silentsheet_retry.vbs", "packages")
 foreach ($f in $filesToRemove) {
     if (Test-Path $f) {
-        Remove-Item $f
+        Remove-Item $f -Recurse -Force
         Write-Host "[x] Removed $f"
     }
 }

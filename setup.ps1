@@ -161,10 +161,19 @@ Write-Host "`n=== Setting up Virtual Environment and Dependencies ==="
 if ($UseUv) {
     Write-Host "Creating virtual environment with uv..."
     uv venv
-    Write-Host "Installing dependencies from local packages with uv..."
-    uv pip install --no-index --find-links=packages -r requirements.txt
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+    if (Test-Path "packages") {
+        Write-Host "Installing dependencies from local packages with uv..."
+        uv pip install --no-index --find-links=packages -r requirements.txt
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+            uv pip install -r requirements.txt
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Online dependency installation failed. Check your network connection and try again."
+                exit 1
+            }
+        }
+    } else {
+        Write-Host "Local 'packages' folder not found. Downloading dependencies from the internet with uv..."
         uv pip install -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Online dependency installation failed. Check your network connection and try again."
@@ -174,10 +183,19 @@ if ($UseUv) {
 } else {
     Write-Host "Creating virtual environment with python -m venv..."
     python -m venv .venv
-    Write-Host "Installing dependencies from local packages with pip..."
-    .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+    if (Test-Path "packages") {
+        Write-Host "Installing dependencies from local packages with pip..."
+        .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+            .\.venv\Scripts\pip.exe install -r requirements.txt
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Online dependency installation failed. Check your network connection and try again."
+                exit 1
+            }
+        }
+    } else {
+        Write-Host "Local 'packages' folder not found. Downloading dependencies from the internet with pip..."
         .\.venv\Scripts\pip.exe install -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Online dependency installation failed. Check your network connection and try again."
@@ -299,7 +317,7 @@ Write-Host ""
 if (Select-YesNo "Run SilentSheet now in the background?") {
     Write-Host "Starting SilentSheet in the background..."
     if ($UseUv) {
-        Start-Process -FilePath "uv" -ArgumentList "run", "pythonw", "fill_timesheet.py", "--headless" -WindowStyle Hidden
+        Start-Process -FilePath "uv" -ArgumentList "run", "--no-sync", "pythonw", "fill_timesheet.py", "--headless" -WindowStyle Hidden
     } else {
         Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "fill_timesheet.py", "--headless" -WindowStyle Hidden
     }
