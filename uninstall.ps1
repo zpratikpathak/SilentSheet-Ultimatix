@@ -1,5 +1,18 @@
 Write-Host "=== SilentSheet Uninstall ==="
 
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) { $scriptDir = (Get-Item .).FullName }
+
+Write-Host "Stopping background processes..."
+$processes = Get-CimInstance Win32_Process | Where-Object {
+    ($_.Name -match "^pythonw?\.exe$" -and $_.ExecutablePath -like "$scriptDir\*") -or
+    ($_.Name -eq "wscript.exe" -and $_.CommandLine -like "*$scriptDir\*")
+}
+foreach ($p in $processes) {
+    Write-Host "Stopping process $($p.Name) (PID: $($p.ProcessId))..."
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+}
+
 # Check for uv
 $UseUv = $false
 if (Get-Command "uv" -ErrorAction SilentlyContinue) {
@@ -10,7 +23,7 @@ if (Get-Command "uv" -ErrorAction SilentlyContinue) {
 Write-Host "Removing auto-run entries..."
 if (Test-Path ".venv") {
     if ($UseUv) {
-        uv run python setup_startup.py uninstall-all
+        uv run --no-sync python setup_startup.py uninstall-all
     } else {
         .\.venv\Scripts\python.exe setup_startup.py uninstall-all
     }
@@ -24,7 +37,7 @@ if (Test-Path $startupVbs) {
 schtasks /delete /tn "SilentSheet" /f 2>$null | Out-Null
 
 # Remove generated files and packages
-$filesToRemove = @("config.toml", ".silentsheet_state.json", ".timesheet_done", "silentsheet.log", "silentsheet_launcher.vbs", "silentsheet_retry.vbs", "packages")
+$filesToRemove = @("config.toml", ".silentsheet_state.json", ".timesheet_done", "silentsheet.log", "silentsheet_launcher.vbs", "silentsheet_retry.vbs")
 foreach ($f in $filesToRemove) {
     if (Test-Path $f) {
         Remove-Item $f -Recurse -Force
@@ -54,3 +67,4 @@ Write-Host "[+] SilentSheet has been uninstalled." -ForegroundColor Green
 Write-Host "You can safely delete this folder now."
 Write-Host ""
 Read-Host "Press Enter to exit"
+ 
