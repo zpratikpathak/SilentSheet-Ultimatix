@@ -4,16 +4,23 @@ function Select-Option {
         [string[]]$Options,
         [int]$Default = 0
     )
-    Write-Host "$Prompt (Up/Down to move, Enter to select):"
+    
+    [System.Console]::CursorVisible = $false
+    
+    Write-Host "`n $Prompt" -ForegroundColor Cyan
+    Write-Host " (Use Up/Down arrows to move, Enter to select)`n" -ForegroundColor DarkGray
+    
     $sel = $Default
     $esc = [char]27
+    
     for ($i = 0; $i -lt $Options.Count; $i++) {
         if ($i -eq $sel) {
             Write-Host "  > $($Options[$i])" -ForegroundColor Cyan
         } else {
-            Write-Host "    $($Options[$i])"
+            Write-Host "    $($Options[$i])" -ForegroundColor DarkGray
         }
     }
+    
     while ($true) {
         $key = [System.Console]::ReadKey($true)
         if ($key.Key -eq [System.ConsoleKey]::UpArrow) {
@@ -23,16 +30,19 @@ function Select-Option {
         } elseif ($key.Key -eq [System.ConsoleKey]::Enter) {
             break
         } else { continue }
+        
         Write-Host "$esc[$($Options.Count)A" -NoNewline
         for ($i = 0; $i -lt $Options.Count; $i++) {
             Write-Host "$esc[2K" -NoNewline
             if ($i -eq $sel) {
                 Write-Host "  > $($Options[$i])" -ForegroundColor Cyan
             } else {
-                Write-Host "    $($Options[$i])"
+                Write-Host "    $($Options[$i])" -ForegroundColor DarkGray
             }
         }
     }
+    
+    [System.Console]::CursorVisible = $true
     return $sel
 }
 
@@ -45,36 +55,94 @@ function Select-YesNo {
     return $idx -eq 0
 }
 
-Write-Host "=== SilentSheet Setup ==="
-Write-Host "Checking prerequisites..."
+# --- NEW BOLD HEADER SYSTEM ---
+$global:stepCounter = 1
+
+function Write-Header {
+    param([string]$Title)
+    
+    # ADDED: 1.5 second pause before jumping to the next section
+    Start-Sleep -Milliseconds 1500 
+    
+    Write-Host "`n"
+    Write-Host "======================================================================" -ForegroundColor Blue
+    Write-Host "  STEP $global:stepCounter | $($Title.ToUpper())" -ForegroundColor Cyan
+    Write-Host "======================================================================" -ForegroundColor Blue
+    Write-Host ""
+    $global:stepCounter++
+}
+# ------------------------------
+
+function Invoke-LoadingAnimation {
+    param(
+        [string]$Message,
+        [int]$DurationSeconds = 2
+    )
+    [System.Console]::CursorVisible = $false
+    $spinner = @('-', '\', '|', '/')
+    $iterations = $DurationSeconds * 10
+    
+    for ($i = 0; $i -lt $iterations; $i++) {
+        Write-Host "`r  [$($spinner[$i % 4])] $Message..." -NoNewline -ForegroundColor Cyan
+        Start-Sleep -Milliseconds 100
+    }
+    
+    Write-Host "`r                                                            `r" -NoNewline
+    [System.Console]::CursorVisible = $true
+}
+
+# --- Setup Start ---
+Clear-Host
+
+$banner = @"
+  ____  _ _            _   ____  _               _   
+ / ___|(_) | ___ _ __ | |_/ ___|| |__   ___  ___| |_ 
+ \___ \| | |/ _ \ '_ \| __\___ \| '_ \ / _ \/ _ \ __|
+  ___) | | |  __/ | | | |_ ___) | | | |  __/  __/ |_ 
+ |____/|_|_|\___|_| |_|\__|____/|_| |_|\___|\___|\__|
+"@
+
+Write-Host $banner -ForegroundColor Cyan
+Write-Host "                                   SETUP CONFIGURATION`n" -ForegroundColor DarkGray
+
+# Simulate a brief loading sequence for premium feel
+Invoke-LoadingAnimation -Message "Initializing Setup Environment" -DurationSeconds 3
+Write-Host " [+] Environment Initialized." -ForegroundColor Green
+
+
+# ==========================================
+Write-Header "Checking System Prerequisites"
+# ==========================================
 
 $missing = @()
 
 # Check for Python
+Invoke-LoadingAnimation -Message "Locating Python" -DurationSeconds 2
 if (Get-Command "python" -ErrorAction SilentlyContinue) {
-    Write-Host "[x] Python is installed."
+    Write-Host " [+] Python is installed." -ForegroundColor Green
 } else {
-    Write-Host "[ ] Python is NOT installed." -ForegroundColor Red
+    Write-Host " [X] Python is NOT installed." -ForegroundColor Red
     $missing += @{ Name = "Python"; WingetId = "Python.Python.3.13" }
 }
 
 # Check for PowerShell (Windows PowerShell) in PATH
 $psDir = "C:\Windows\System32\WindowsPowerShell\v1.0"
+Invoke-LoadingAnimation -Message "Checking System PATH" -DurationSeconds 2
 if ($env:PATH -notlike "*$psDir*") {
-    Write-Warning "PowerShell directory ($psDir) is not in your System PATH."
-    Write-Warning "This is required for toast notifications."
+    Write-Host " [!] PowerShell directory ($psDir) is not in your System PATH." -ForegroundColor Yellow
+    Write-Host "     This is required for toast notifications." -ForegroundColor DarkGray
     if (Select-YesNo "Add it to your User PATH?") {
         $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
         if ($userPath -notlike "*$psDir*") {
             [Environment]::SetEnvironmentVariable("PATH", "$userPath;$psDir", "User")
             $env:PATH = "$env:PATH;$psDir"
-            Write-Host "[x] Added PowerShell to User PATH."
+            Write-Host " [+] Added PowerShell to User PATH." -ForegroundColor Green
         }
     } else {
-        Write-Warning "Skipping. Toast notifications may not work."
+        Write-Host " [!] Skipping. Toast notifications may not work." -ForegroundColor Yellow
     }
 } else {
-    Write-Host "[x] PowerShell is in PATH."
+    Write-Host " [+] PowerShell is in PATH." -ForegroundColor Green
 }
 
 # Check for Google Chrome
@@ -87,44 +155,44 @@ $chromeFound = $false
 foreach ($p in $chromePaths) {
     if (Test-Path $p) { $chromeFound = $true; break }
 }
+Invoke-LoadingAnimation -Message "Locating Google Chrome" -DurationSeconds 2
 if ($chromeFound) {
-    Write-Host "[x] Google Chrome is installed."
+    Write-Host " [+] Google Chrome is installed." -ForegroundColor Green
 } else {
-    Write-Host "[ ] Google Chrome is NOT installed." -ForegroundColor Red
+    Write-Host " [X] Google Chrome is NOT installed." -ForegroundColor Red
     $missing += @{ Name = "Google Chrome"; WingetId = "Google.Chrome" }
 }
 
 # Check for uv
+Invoke-LoadingAnimation -Message "Checking Package Managers" -DurationSeconds 2
 $UseUv = $false
 if (Get-Command "uv" -ErrorAction SilentlyContinue) {
-    Write-Host "[x] uv is installed. Will use uv for package management."
+    Write-Host " [+] uv is installed. Will use uv for package management." -ForegroundColor Green
     $UseUv = $true
 } else {
-    Write-Host "[!] uv is not installed. Falling back to standard pip."
+    Write-Host " [!] uv is not installed. Falling back to standard pip." -ForegroundColor Yellow
 }
 
 # Offer to install missing software via winget
 if ($missing.Count -gt 0) {
-    Write-Host ""
-    Write-Host "The following software is missing:" -ForegroundColor Yellow
+    Write-Host "`n The following software is missing:" -ForegroundColor Yellow
     foreach ($m in $missing) {
         Write-Host "  - $($m.Name)" -ForegroundColor Yellow
     }
-    Write-Host ""
 
     if (!(Get-Command "winget" -ErrorAction SilentlyContinue)) {
-        Write-Warning "winget is not available on this system. Please install the missing software manually and re-run this script."
+        Write-Host "`n [X] winget is not available on this system. Please install the missing software manually and re-run this script." -ForegroundColor Red
         exit 1
     }
 
     if (Select-YesNo "Would you like to install them using winget?") {
         foreach ($m in $missing) {
-            Write-Host "Installing $($m.Name) (winget install $($m.WingetId))..." -ForegroundColor Cyan
+            Write-Host "`n Installing $($m.Name) (winget install $($m.WingetId))...." -ForegroundColor Cyan
             winget install --id $m.WingetId --accept-source-agreements --accept-package-agreements
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Failed to install $($m.Name). You may need to install it manually."
+                Write-Host " [!] Failed to install $($m.Name). You may need to install it manually." -ForegroundColor Red
             } else {
-                Write-Host "[x] $($m.Name) installed successfully." -ForegroundColor Green
+                Write-Host " [+] $($m.Name) installed successfully." -ForegroundColor Green
             }
         }
 
@@ -135,8 +203,8 @@ if ($missing.Count -gt 0) {
 
         # Re-check critical prerequisites after installation
         if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
-            Write-Warning "Python is still not found in PATH after installation."
-            Write-Warning "Please restart your terminal or add Python to PATH manually, then re-run this script."
+            Write-Host "`n [X] Python is still not found in PATH after installation." -ForegroundColor Red
+            Write-Host "     Please restart your terminal or add Python to PATH manually, then re-run this script." -ForegroundColor DarkGray
             exit 1
         }
 
@@ -145,71 +213,79 @@ if ($missing.Count -gt 0) {
             if (Test-Path $p) { $chromeFound = $true; break }
         }
         if (-not $chromeFound) {
-            Write-Warning "Google Chrome is still not found after installation."
-            Write-Warning "Please restart your terminal and re-run this script."
+            Write-Host "`n [X] Google Chrome is still not found after installation." -ForegroundColor Red
+            Write-Host "     Please restart your terminal and re-run this script." -ForegroundColor DarkGray
             exit 1
         }
 
-        Write-Host "[x] All prerequisites are now installed." -ForegroundColor Green
+        Write-Host "`n [+] All prerequisites are now installed." -ForegroundColor Green
     } else {
-        Write-Warning "Cannot continue without: $(($missing | ForEach-Object { $_.Name }) -join ', '). Exiting."
+        Write-Host "`n [X] Cannot continue without: $(($missing | ForEach-Object { $_.Name }) -join ', '). Exiting." -ForegroundColor Red
         exit 1
     }
 }
 
-Write-Host "`n=== Setting up Virtual Environment and Dependencies ==="
+
+# ==========================================
+Write-Header "Environment & Dependencies"
+# ==========================================
+
 if ($UseUv) {
-    Write-Host "Creating virtual environment with uv..."
-    uv venv
+    Write-Host " Creating virtual environment with uv..." -ForegroundColor Cyan
+    uv venv | Out-Null
     if (Test-Path "packages") {
-        Write-Host "Installing dependencies from local packages with uv..."
+        Write-Host " Installing dependencies from local packages..." -ForegroundColor Cyan
         uv pip install --no-index --find-links=packages -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+            Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
             uv pip install -r requirements.txt
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Online dependency installation failed. Check your network connection and try again."
+                Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
                 exit 1
             }
         }
     } else {
-        Write-Host "Local 'packages' folder not found. Downloading dependencies from the internet with uv..."
+        Write-Host " Downloading dependencies from the internet with uv..." -ForegroundColor Cyan
         uv pip install -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Online dependency installation failed. Check your network connection and try again."
+            Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
             exit 1
         }
     }
 } else {
-    Write-Host "Creating virtual environment with python -m venv..."
+    Write-Host " Creating virtual environment with python -m venv..." -ForegroundColor Cyan
     python -m venv .venv
     if (Test-Path "packages") {
-        Write-Host "Installing dependencies from local packages with pip..."
-        .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt
+        Write-Host " Installing dependencies from local packages with pip..." -ForegroundColor Cyan
+        .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "[!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
-            .\.venv\Scripts\pip.exe install -r requirements.txt
+            Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+            .\.venv\Scripts\pip.exe install -r requirements.txt | Out-Null
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Online dependency installation failed. Check your network connection and try again."
+                Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
                 exit 1
             }
         }
     } else {
-        Write-Host "Local 'packages' folder not found. Downloading dependencies from the internet with pip..."
-        .\.venv\Scripts\pip.exe install -r requirements.txt
+        Write-Host " Downloading dependencies from the internet with pip..." -ForegroundColor Cyan
+        .\.venv\Scripts\pip.exe install -r requirements.txt | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Online dependency installation failed. Check your network connection and try again."
+            Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
             exit 1
         }
     }
 }
-Write-Host "[x] Dependencies installed successfully."
+Write-Host " [+] Dependencies configured successfully." -ForegroundColor Green
 
-Write-Host "`n=== Configuration File Setup (config.toml) ==="
+
+# ==========================================
+Write-Header "Timesheet Configuration"
+# ==========================================
+
 if (Test-Path "config.toml") {
-    Write-Host "Existing config.toml found."
-    if (-not (Select-YesNo "Overwrite it?" -Default 1)) {
-        Write-Host "Keeping existing config.toml."
+    Write-Host " [i] Existing config.toml found." -ForegroundColor Cyan
+    if (-not (Select-YesNo "Overwrite existing configuration?" -Default 1)) {
+        Write-Host "     Keeping existing config.toml." -ForegroundColor DarkGray
         $skipConfig = $true
     } else {
         $skipConfig = $false
@@ -219,24 +295,26 @@ if (Test-Path "config.toml") {
 }
 
 if (-not $skipConfig) {
+    do {
+        Write-Host "`n Employee ID / Username: " -NoNewline -ForegroundColor White
+        $employeeId = (Read-Host).Trim()
+        if ([string]::IsNullOrWhiteSpace($employeeId)) {
+            Write-Host " [!] Employee ID cannot be empty. Please try again." -ForegroundColor Yellow
+        }
+    } while ([string]::IsNullOrWhiteSpace($employeeId))
 
-do {
-    $employeeId = (Read-Host "Enter your Employee ID/Username").Trim()
-    if ([string]::IsNullOrWhiteSpace($employeeId)) {
-        Write-Warning "Employee ID cannot be empty. Please try again."
-    }
-} while ([string]::IsNullOrWhiteSpace($employeeId))
+    Write-Host " Task Name [Default: Development]: " -NoNewline -ForegroundColor White
+    $taskName = Read-Host
+    if ([string]::IsNullOrWhiteSpace($taskName)) { $taskName = "Development" }
 
-$taskName = Read-Host "Enter the Task Name [Default: Development]"
-if ([string]::IsNullOrWhiteSpace($taskName)) { $taskName = "Development" }
+    $chargeOptions = @("Billable", "Non Billable")
+    $selectedIndex = Select-Option -Prompt "Select Charge Type" -Options $chargeOptions
+    $chargeType = $chargeOptions[$selectedIndex]
+    
+    Invoke-LoadingAnimation -Message "Writing Configuration Files" -DurationSeconds 2
 
-$chargeOptions = @("Billable", "Non Billable")
-$selectedIndex = Select-Option -Prompt "Billable or Non Billable?" -Options $chargeOptions
-$chargeType = $chargeOptions[$selectedIndex]
-Write-Host ("Selected: " + $chargeType)
-
-# Build the TOML content
-$configContent = @"
+    # Build the TOML content
+    $configContent = @"
 [employee]
 EMPLOYEE_ID = "$employeeId"
 
@@ -245,55 +323,59 @@ task_name = "$taskName"
 charge_type = "$chargeType"
 "@
 
-# Write the TOML file ensuring UTF-8 without BOM so Python's tomllib can read it cleanly
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText("$PWD\config.toml", $configContent.Trim(), $utf8NoBom)
-Write-Host "[x] config.toml generated."
+    # Write the TOML file
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText("$PWD\config.toml", $configContent.Trim(), $utf8NoBom)
+    Write-Host " [+] config.toml generated." -ForegroundColor Green
+}
 
-} # end if (-not $skipConfig)
 
-Write-Host "`n=== Auto-Run Configuration ==="
-Write-Host "Choose how SilentSheet should automatically run:`n"
-Write-Host "  Windows Startup  - Runs when you start your laptop next day" -ForegroundColor White
-Write-Host "                     (Recommended if you shut down laptop daily)" -ForegroundColor DarkGray
-Write-Host "  Windows Login    - Runs on login and unlock next day" -ForegroundColor White
-Write-Host "                     (Recommended if you use sleep / close the lid)" -ForegroundColor DarkGray
-Write-Host "  Disable          - Do not auto-run`n" -ForegroundColor White
+# ==========================================
+Write-Header "Automation & Auto-Run Settings"
+# ==========================================
 
-$autoRunOptions = @("Windows Startup", "Windows Login", "Disable auto-run")
-$autoRunChoice = Select-Option -Prompt "Select auto-run method" -Options $autoRunOptions
+$autoRunOptions = @(
+    "Windows Startup (Recommended if you shut down daily)", 
+    "Windows Login   (Recommended if you close lid / sleep)", 
+    "Disable auto-run"
+)
+$autoRunChoice = Select-Option -Prompt "How should SilentSheet automatically start?" -Options $autoRunOptions
 $autoRunLabel = "Disabled"
 
 function Invoke-SetupStartup {
     param([string]$Action)
     if ($UseUv) {
-        uv run --no-sync python setup_startup.py $Action
+        uv run --no-sync python setup_startup.py $Action | Out-Null
     } else {
-        .\.venv\Scripts\python.exe setup_startup.py $Action
+        .\.venv\Scripts\python.exe setup_startup.py $Action | Out-Null
     }
 }
 
+Invoke-LoadingAnimation -Message "Applying System Settings" -DurationSeconds 2
+
 switch ($autoRunChoice) {
     0 {
-        Write-Host "Installing Windows Startup entry..."
+        Write-Host " Configuring Windows Startup..." -ForegroundColor Cyan
         Invoke-SetupStartup "install-startup"
         Invoke-SetupStartup "uninstall-logon"
+        Write-Host " [+] SilentSheet will now automatically fill your timesheet in the background." -ForegroundColor Green
         $autoRunLabel = "Windows Startup"
     }
     1 {
-        Write-Host "Installing Windows Login (Task Scheduler) entry..."
+        Write-Host " Configuring Windows Login..." -ForegroundColor Cyan
         Invoke-SetupStartup "install-logon"
         Invoke-SetupStartup "uninstall-startup"
+        Write-Host " [+] SilentSheet will now automatically fill your timesheet in the background." -ForegroundColor Green
         $autoRunLabel = "Windows Login"
     }
     2 {
-        Write-Host "Disabling auto-run..."
+        Write-Host " Removing auto-run configurations..." -ForegroundColor Cyan
         Invoke-SetupStartup "uninstall-all"
         $autoRunLabel = "Disabled"
     }
 }
 
-# Register AppUserModelId for Windows Toast Notification Header Icon
+# Register AppUserModelId
 try {
     $aumidPath = "HKCU:\Software\Classes\AppUserModelId\SilentSheet"
     if (-not (Test-Path $aumidPath)) {
@@ -303,41 +385,46 @@ try {
     Set-ItemProperty -Path $aumidPath -Name "DisplayName" -Value "SilentSheet" -ErrorAction Stop
     Set-ItemProperty -Path $aumidPath -Name "IconUri" -Value $iconPath -ErrorAction Stop
 
-    # Clear Windows Notification Cache for this App ID so the new icon takes effect immediately
     $cachePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\SilentSheet"
     if (Test-Path $cachePath) {
         Remove-Item $cachePath -Recurse -Force -ErrorAction Stop | Out-Null
     }
 } catch {
-    # Silently log the issue and say you are ignoring it
-    Write-Warning "Failed to register AppUserModelId for Windows Toast Notification Header Icon. Continuing anyway."
+    # Silently ignore
 }
 
-Write-Host ""
-if (Select-YesNo "Run SilentSheet now in the background?") {
-    Write-Host "Starting SilentSheet in the background..."
+if (Select-YesNo "Launch SilentSheet now in the background?") {
+    Invoke-LoadingAnimation -Message "Starting Background Process" -DurationSeconds 2
     if ($UseUv) {
         Start-Process -FilePath "uv" -ArgumentList "run", "--no-sync", "pythonw", "fill_timesheet.py", "--headless" -WindowStyle Hidden
     } else {
         Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "fill_timesheet.py", "--headless" -WindowStyle Hidden
     }
-    Write-Host "SilentSheet is now running in the background! You will get a notification when it requires input or completes."
+    Write-Host " [+] SilentSheet is running! You will be notified when it requires input or finishes." -ForegroundColor Green
 }
 
+
+# ==========================================
+Write-Header "Setup Complete"
+# ==========================================
+
 # Read back the config for the summary
-Write-Host "`n=== Setup Summary ==="
 if (Test-Path "config.toml") {
     $cfgRaw = Get-Content "config.toml" -Raw
     if ($cfgRaw -match 'EMPLOYEE_ID\s*=\s*"([^"]*)"') { $sumId = $Matches[1] } else { $sumId = "?" }
     if ($cfgRaw -match 'task_name\s*=\s*"([^"]*)"')    { $sumTask = $Matches[1] } else { $sumTask = "?" }
     if ($cfgRaw -match 'charge_type\s*=\s*"([^"]*)"')   { $sumCharge = $Matches[1] } else { $sumCharge = "?" }
-    Write-Host "  Employee ID  : $sumId"
-    Write-Host "  Task Name    : $sumTask"
-    Write-Host "  Charge Type  : $sumCharge"
 }
-Write-Host "  Pkg Manager  : $(if ($UseUv) { 'uv' } else { 'pip' })"
-Write-Host "  Auto-Run     : $autoRunLabel"
+
+Write-Host "  FINAL SYSTEM CONFIGURATION:" -ForegroundColor White
+Write-Host " -----------------------------------" -ForegroundColor DarkGray
+Write-Host "  Employee ID   : " -NoNewline; Write-Host $sumId -ForegroundColor Cyan
+Write-Host "  Task Name     : " -NoNewline; Write-Host $sumTask -ForegroundColor Cyan
+Write-Host "  Charge Type   : " -NoNewline; Write-Host $sumCharge -ForegroundColor Cyan
+Write-Host "  Pkg Manager   : " -NoNewline; Write-Host $(if ($UseUv) { 'uv' } else { 'pip' }) -ForegroundColor Cyan
+Write-Host "  Auto-Run      : " -NoNewline; Write-Host $autoRunLabel -ForegroundColor Cyan
+Write-Host " -----------------------------------" -ForegroundColor DarkGray
+Write-Host "`n [+] You are all set to go!" -ForegroundColor Green
 Write-Host ""
-Write-Host "[+] Setup complete!" -ForegroundColor Green
-Write-Host ""
+
 Read-Host "Press Enter to exit"

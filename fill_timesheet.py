@@ -90,7 +90,9 @@ def check_for_update() -> None:
         except Exception as e:
             last_err = e
             if attempt < 3:
-                print(f"Version check attempt {attempt}/3 failed: {e}. Retrying in {5 * attempt}s...")
+                print(
+                    f"Version check attempt {attempt}/3 failed: {e}. Retrying in {5 * attempt}s..."
+                )
                 time.sleep(5 * attempt)
     logger.error("Version check failed: %s", last_err)
     print(f"Version check skipped: {last_err}")
@@ -276,7 +278,31 @@ def notify(
     toast.show()
 
 
+def _mark_done_vbs() -> Path:
+    """Return the path to a VBS script that marks today as done (created on demand)."""
+    vbs_path = Path(tempfile.gettempdir()) / "silentsheet_markdone.vbs"
+    python_exe = Path(sys.executable)
+    pythonw_exe = python_exe.parent / "pythonw.exe"
+    if not pythonw_exe.exists():
+        pythonw_exe = python_exe
+    script_path = SCRIPT_DIR / "fill_timesheet.py"
+    vbs_content = (
+        'Set WshShell = CreateObject("WScript.Shell")\n'
+        f'WshShell.CurrentDirectory = "{SCRIPT_DIR}"\n'
+        f'WshShell.Run chr(34) & "{pythonw_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --mark-done-today", 0, False\n'
+    )
+    vbs_path.write_text(vbs_content)
+    return vbs_path
+
+
 def main() -> None:
+    # Invoked by the "Mark as Done" toast button — record today and exit silently.
+    if "--mark-done-today" in sys.argv:
+        mark_done_today()
+        mark_notified_today()
+        print("Marked today as done via notification button.")
+        return
+
     headless = "--headless" in sys.argv
 
     # Wait for internet connectivity (ethernet may not be plugged in yet)
@@ -357,9 +383,16 @@ def main() -> None:
                 is_error_page = any(
                     marker in page_title or marker in page_source_snippet
                     for marker in (
-                        "not working", "error", "502", "503", "504",
-                        "bad gateway", "service unavailable",
-                        "this site can", "err_", "timed out",
+                        "not working",
+                        "error",
+                        "502",
+                        "503",
+                        "504",
+                        "bad gateway",
+                        "service unavailable",
+                        "this site can",
+                        "err_",
+                        "timed out",
                     )
                 )
                 if is_error_page and login_attempt < login_attempts:
@@ -373,10 +406,14 @@ def main() -> None:
                 # Final attempt failed — dump debug info
                 debug_url = driver.current_url
                 debug_title = driver.title
-                print(f"DEBUG: Timed out waiting for #form1")
+                print("DEBUG: Timed out waiting for #form1")
                 print(f"DEBUG: Current URL   = {debug_url}")
                 print(f"DEBUG: Page title    = {debug_title}")
-                logger.error("Timed out waiting for #form1. URL=%s, title=%s", debug_url, debug_title)
+                logger.error(
+                    "Timed out waiting for #form1. URL=%s, title=%s",
+                    debug_url,
+                    debug_title,
+                )
 
                 debug_dir = SCRIPT_DIR / "debug"
                 debug_dir.mkdir(exist_ok=True)
@@ -438,14 +475,34 @@ def main() -> None:
             f"EasyAuth: {auth_number}",
             "Tap this number on your Authenticator app to approve.",
             image_path=auth_image_path,
+            action_label="Mark as Done",
+            action_launch=f"file:///{_mark_done_vbs().as_posix()}",
         )
 
         # Wait for the user to approve on their device and the page to proceed
         print("Waiting for authentication to complete...")
-        wait_for_auth = WebDriverWait(driver, 65)  # 65 seconds to approve
-        try:
-            wait_for_auth.until(EC.url_changes(driver.current_url))
-        except TimeoutException:
+        auth_start_url = driver.current_url
+        auth_timeout = 65  # seconds to approve
+        auth_start = time.time()
+        last_notify_time = auth_start  # track when we last showed the notification
+        while time.time() - auth_start < auth_timeout:
+            if already_done_today():
+                print("Marked as done via notification button. Exiting.")
+                return
+            if driver.current_url != auth_start_url:
+                break
+            # Re-show the notification every 25 seconds if still waiting
+            if time.time() - last_notify_time >= 25:
+                notify(
+                    f"EasyAuth: {auth_number}",
+                    "Tap this number on your Authenticator app to approve.",
+                    image_path=auth_image_path,
+                    action_label="Mark as Done",
+                    action_launch=f"file:///{_mark_done_vbs().as_posix()}",
+                )
+                last_notify_time = time.time()
+            time.sleep(1)
+        else:
             raise TimeoutError("EasyAuth request timed out waiting for approval.")
 
         # Check if we landed on the timeout error page
@@ -563,9 +620,12 @@ def main() -> None:
     except Exception as e:
         logger.exception("Timesheet automation failed")
         print(f"Error: {e}", file=sys.stderr)
-        
+
         if isinstance(e, TimeoutError) and "timed out" in str(e).lower():
-            startup_dir = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+            startup_dir = (
+                Path.home()
+                / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+            )
             startup_vbs = startup_dir / "launch_silentsheet.vbs"
             project_vbs = SCRIPT_DIR / "silentsheet_launcher.vbs"
             retry_vbs = SCRIPT_DIR / "silentsheet_retry.vbs"
@@ -584,7 +644,7 @@ def main() -> None:
                     f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --headless", 0, False\n'
                 )
                 vbs_to_launch.write_text(vbs_content)
-            
+
             notify(
                 "Timesheet - Timeout",
                 "EasyAuth request timed out. Click Retry to try again.",
@@ -593,7 +653,7 @@ def main() -> None:
             )
         else:
             notify("Timesheet - Error", str(e))
-            
+
         if not headless:
             input("Press Enter to close the browser...")
     finally:
