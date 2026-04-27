@@ -25,10 +25,12 @@ def generate_vbs() -> str:
     # Use chr(34) to safely produce double-quote characters inside VBS strings,
     # avoiding fragile nested-quote escaping entirely.
     # Pass --headless so Chrome runs invisibly on startup.
+    # Use True (wait for completion) so Task Scheduler keeps the task "running"
+    # and its MultipleInstancesPolicy=IgnoreNew can suppress duplicate triggers.
     return (
         'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.CurrentDirectory = "{PROJECT_DIR}"\n'
-        f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --headless", 0, False\n'
+        f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --headless", 0, True\n'
     )
 
 

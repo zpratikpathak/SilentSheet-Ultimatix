@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 import tomllib
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -337,8 +337,60 @@ def main() -> None:
                     raise
 
         # Step 2: Wait for redirect to login page and find the username input
+        # The auth redirect chain (SiteMinder → SAML → Ultimatix) can be slow,
+        # especially right after boot. The server may also return an error page
+        # on the first load that resolves after a refresh.
         print("Waiting for login page...")
-        username_input = wait.until(EC.presence_of_element_located((By.ID, "form1")))
+        print(f"Current URL after navigation: {driver.current_url}")
+        username_input = None
+        login_attempts = 3
+        for login_attempt in range(1, login_attempts + 1):
+            try:
+                login_wait = WebDriverWait(driver, WAIT_TIMEOUT)
+                username_input = login_wait.until(
+                    EC.presence_of_element_located((By.ID, "form1"))
+                )
+                break
+            except TimeoutException:
+                page_title = driver.title.lower()
+                page_source_snippet = driver.page_source[:2000].lower()
+                is_error_page = any(
+                    marker in page_title or marker in page_source_snippet
+                    for marker in (
+                        "not working", "error", "502", "503", "504",
+                        "bad gateway", "service unavailable",
+                        "this site can", "err_", "timed out",
+                    )
+                )
+                if is_error_page and login_attempt < login_attempts:
+                    print(
+                        f"Page failed to load (attempt {login_attempt}/{login_attempts}): "
+                        f"title='{driver.title}'. Refreshing..."
+                    )
+                    driver.refresh()
+                    time.sleep(3)
+                    continue
+                # Final attempt failed — dump debug info
+                debug_url = driver.current_url
+                debug_title = driver.title
+                print(f"DEBUG: Timed out waiting for #form1")
+                print(f"DEBUG: Current URL   = {debug_url}")
+                print(f"DEBUG: Page title    = {debug_title}")
+                logger.error("Timed out waiting for #form1. URL=%s, title=%s", debug_url, debug_title)
+
+                debug_dir = SCRIPT_DIR / "debug"
+                debug_dir.mkdir(exist_ok=True)
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+                screenshot_path = debug_dir / f"screenshot_{timestamp}.png"
+                driver.save_screenshot(str(screenshot_path))
+                print(f"DEBUG: Screenshot saved to {screenshot_path}")
+
+                page_source_path = debug_dir / f"page_source_{timestamp}.html"
+                page_source_path.write_text(driver.page_source, encoding="utf-8")
+                print(f"DEBUG: Page source saved to {page_source_path}")
+                logger.error("Page source saved to %s", page_source_path)
+                raise
 
         # Step 3: Type the employee ID
         print(f"Entering employee ID: {EMPLOYEE_ID}")
