@@ -280,7 +280,7 @@ def notify(
 
 def _mark_done_vbs() -> Path:
     """Return the path to a VBS script that marks today as done (created on demand)."""
-    vbs_path = Path(tempfile.gettempdir()) / "silentsheet_markdone.vbs"
+    vbs_path = SCRIPT_DIR / "silentsheet_markdone.vbs"
     python_exe = Path(sys.executable)
     pythonw_exe = python_exe.parent / "pythonw.exe"
     if not pythonw_exe.exists():

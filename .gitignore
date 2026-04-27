@@ -20,6 +20,7 @@ config.toml
 silentsheet.log
 silentsheet_launcher.vbs
 silentsheet_retry.vbs
+silentsheet_markdone.vbs
 
 # IDE
 .vscode/
