@@ -303,13 +303,86 @@ if (-not $skipConfig) {
         }
     } while ([string]::IsNullOrWhiteSpace($employeeId))
 
-    Write-Host " Task Name [Default: Development]: " -NoNewline -ForegroundColor White
-    $taskName = Read-Host
-    if ([string]::IsNullOrWhiteSpace($taskName)) { $taskName = "Development" }
+    $taskName = "Development"
+    $chargeType = "Billable"
+    $scrapeSuccess = $false
 
-    $chargeOptions = @("Billable", "Non Billable")
-    $selectedIndex = Select-Option -Prompt "Select Charge Type" -Options $chargeOptions
-    $chargeType = $chargeOptions[$selectedIndex]
+    # Check internet connectivity before attempting to scrape
+    $internetAvailable = $false
+    try {
+        $null = Test-Connection -ComputerName "www.google.com" -Count 1 -Quiet -ErrorAction Stop
+        $internetAvailable = $true
+    } catch {
+        $internetAvailable = $false
+    }
+    if (-not $internetAvailable) {
+        # Fallback: try a direct TCP connection to port 443
+        try {
+            $tcp = New-Object System.Net.Sockets.TcpClient
+            $tcp.Connect("www.google.com", 443)
+            $tcp.Close()
+            $internetAvailable = $true
+        } catch {
+            $internetAvailable = $false
+        }
+    }
+
+    if ($internetAvailable) {
+    Write-Host ""
+    Write-Host " [i] Detecting available tasks from the timesheet..." -ForegroundColor Cyan
+    Write-Host "     Approve the EasyAuth request on your Authenticator app when prompted." -ForegroundColor DarkGray
+    Write-Host ""
+
+        # Run the standalone scrape script with the employee ID as argument
+        if ($UseUv) {
+            $scrapeOutput = uv run --no-sync python scrape_tasks.py $employeeId 2>&1 | Out-String
+        } else {
+            $scrapeOutput = .\.venv\Scripts\python.exe scrape_tasks.py $employeeId 2>&1 | Out-String
+        }
+
+        # Find the SCRAPE_RESULT: line and parse the JSON
+        $resultLine = ($scrapeOutput -split "`n") | Where-Object { $_ -match "^SCRAPE_RESULT:" } | Select-Object -Last 1
+        if ($resultLine) {
+            $jsonStr = $resultLine -replace "^SCRAPE_RESULT:", ""
+            try {
+                $tasks = $jsonStr | ConvertFrom-Json
+                if ($tasks.Count -gt 0) {
+                    $scrapeSuccess = $true
+                    # Build display strings: "TaskName [ChargeType]"
+                    $taskOptions = @()
+                    foreach ($t in $tasks) {
+                        $taskOptions += "$($t.task_name) [$($t.charge_type)]"
+                    }
+
+                    Write-Host ""
+                    $selectedTaskIdx = Select-Option -Prompt "Select Task and Charge Type" -Options $taskOptions
+                    $taskName = $tasks[$selectedTaskIdx].task_name
+                    $chargeType = $tasks[$selectedTaskIdx].charge_type
+                    Write-Host ""
+                    Write-Host " [+] Selected: $taskName [$chargeType]" -ForegroundColor Green
+                } else {
+                    Write-Host " [!] No tasks found on the timesheet. Falling back to manual input." -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host " [!] Failed to parse task data. Falling back to manual input." -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host " [!] Could not retrieve tasks. Falling back to manual input." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host ""
+        Write-Host " [!] No internet connection detected. Skipping task detection." -ForegroundColor Yellow
+    }
+
+    if (-not $scrapeSuccess) {
+        Write-Host " Task Name [Default: Development]: " -NoNewline -ForegroundColor White
+        $manualTaskName = Read-Host
+        if (-not [string]::IsNullOrWhiteSpace($manualTaskName)) { $taskName = $manualTaskName }
+
+        $chargeOptions = @("Billable", "Non Billable")
+        $selectedIndex = Select-Option -Prompt "Select Charge Type" -Options $chargeOptions
+        $chargeType = $chargeOptions[$selectedIndex]
+    }
     
     Invoke-LoadingAnimation -Message "Writing Configuration Files" -DurationSeconds 2
 
