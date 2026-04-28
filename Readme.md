@@ -14,22 +14,30 @@
 - Python 3.12+
 - Google Chrome
 
-## Quick Start
+## Quick Install
+
+Open PowerShell, `cd` into an empty folder where you want SilentSheet to live, then paste:
 
 ```powershell
-.\setup.ps1
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/zpratikpathak/SilentSheet-Ultimatix/home/install.ps1 | iex"
 ```
 
-If you get a "running scripts is disabled" error, run this instead:
+That's it. The installer will:
+
+1. Download the latest SilentSheet into the current folder
+2. Check prerequisites (Python, Google Chrome) and offer to install any missing via `winget`
+3. Create a virtual environment and install dependencies (`uv` is used automatically when available, otherwise `pip`)
+4. Prompt for your Employee ID, then auto-detect available tasks via EasyAuth
+5. Pick an auto-run mode: **Windows Startup** (for daily restart users), **Windows Login** (for sleep / lid-close users), or disable
+6. Open the GitHub page when finished
+
+### Already cloned the repo?
+
+If you already have the project on disk (e.g. via `git clone`), just run the setup wizard directly from inside the folder:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
-
-The setup script will:
-1. Check prerequisites (Python, uv/pip)
-2. Create a virtual environment and install dependencies
-3. Prompt for your Employee ID, task name, and charge type
-4. Choose an auto-run method: **Windows Startup** (for daily restart users), **Windows Login** (for sleep/lid-close users), or disable
 
 ## Manual Usage
 
@@ -62,29 +70,29 @@ Removes all auto-run entries (Startup folder and Task Scheduler), config, logs, 
 
 ## Updating
 
-To update SilentSheet to the latest version:
+SilentSheet checks GitHub for a newer version every time it runs. When one is available, you'll get a Windows toast titled **"SilentSheet Update Available"** with an **Update Now** button:
 
-1. [Download the latest version from GitHub](#readme) and extract it in a folder:
+- Click the toast (or the **Update Now** button) and SilentSheet handles the rest: it stops any running background process, downloads the latest archive into a temp folder, overwrites the project files, re-runs setup to pick up any new dependencies, and opens the GitHub page when done.
+- Your `config.toml`, `.silentsheet_state.json`, and `.venv\` are never touched — they're gitignored so they aren't in the update archive.
 
-   <img src="images/Download.gif" alt="Download SilentSheet" width="200" />
+You can also trigger the same flow yourself at any time:
 
-2. Open the powershell terminal in the folder and re-run the setup script to install any new dependencies:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\setup.ps1
-   ```
-   Your existing `config.toml` will be preserved — the setup only prompts for config if one doesn't already exist.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Update
+```
 
 
 ## How It Works
 
 1. Waits for internet connectivity
 2. Checks if the timesheet was already filled today — exits early if so
-3. Opens the Ultimatix timesheet portal in Chrome
-4. Enters your Employee ID and initiates EasyAuth login
-5. Shows a toast notification with the EasyAuth number to approve on your phone
-6. Finds your configured task, fills 9 hours, and clicks Submit
-7. Refreshes the page and verifies the hours were saved
-8. Logs errors to `silentsheet.log` if anything goes wrong
+3. Checks GitHub for a newer version and shows an **Update Now** toast if one exists
+4. Opens the Ultimatix timesheet portal in Chrome
+5. Enters your Employee ID and initiates EasyAuth login
+6. Shows a toast notification with the EasyAuth number to approve on your phone
+7. Finds your configured task, fills 9 hours, and clicks Submit
+8. Refreshes the page and verifies the hours were saved
+9. If anything goes wrong, the user-facing toast stays short and friendly while a per-incident diagnostic report (with screenshot, page URL, and traceback) is saved to `logs/<datetime>_error.md` for later inspection
 
 ## Configuration
 
@@ -104,13 +112,17 @@ See `example.config.toml` for reference.
 ## Project Structure
 
 ```
-├── fill_timesheet.py      # Main automation script
-├── setup.ps1              # Interactive setup
+├── install.ps1            # One-line bootstrap installer (download + run setup)
+├── setup.ps1              # Interactive setup wizard (also handles -Install / -Update)
 ├── uninstall.ps1          # Clean uninstall
+├── fill_timesheet.py      # Main automation script
+├── scrape_tasks.py        # Detect available tasks from the timesheet
 ├── setup_startup.py       # Auto-run install/uninstall (Startup folder & Task Scheduler)
+├── error_logger.py        # Shared diagnostic-report writer used by both Python scripts
 ├── config.toml            # Your config (gitignored)
 ├── example.config.toml    # Config template
 ├── favicon.ico            # App icon for notifications
 ├── pyproject.toml         # Project metadata & dependencies
-└── silentsheet.log        # Error log (auto-generated, gitignored)
+├── logs/                  # Per-incident diagnostic reports + screenshots (gitignored)
+└── silentsheet.log        # Rolling error log (auto-generated, gitignored)
 ```

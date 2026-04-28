@@ -1,4 +1,12 @@
-param([switch]$Update)
+param(
+    [switch]$Update,
+    [switch]$Install
+)
+
+# Treat Install and Update as the same internal "bootstrap" mode (download
+# the latest archive, extract over the project root, then run normal setup).
+# The two flags only differ in the banner text shown to the user.
+$bootstrapMode = $Update -or $Install
 
 function Select-Option {
     param(
@@ -140,6 +148,12 @@ function Write-ErrorReport {
 # --- Setup Start ---
 Clear-Host
 
+# Always run from the script's own directory so cwd-relative paths
+# (.\.venv\Scripts\..., .\setup.ps1, .\config.toml, etc.) and the
+# update-flow extraction target resolve to the install folder no
+# matter how the script was launched.
+if ($PSScriptRoot) { Set-Location -LiteralPath $PSScriptRoot }
+
 $banner = @"
   ____  _ _            _   ____  _               _   
  / ___|(_) | ___ _ __ | |_/ ___|| |__   ___  ___| |_ 
@@ -149,21 +163,38 @@ $banner = @"
 "@
 
 Write-Host $banner -ForegroundColor Cyan
-$bannerSubtitle = if ($Update) { "UPDATING TO LATEST VERSION" } else { "SETUP CONFIGURATION" }
+$bannerSubtitle = if ($Install) {
+    "INSTALLING SILENTSHEET"
+} elseif ($Update) {
+    "UPDATING TO LATEST VERSION"
+} else {
+    "SETUP CONFIGURATION"
+}
 Write-Host "                                   $bannerSubtitle`n" -ForegroundColor DarkGray
 
 # Simulate a brief loading sequence for premium feel
-$initMessage = if ($Update) { "Preparing Update Environment" } else { "Initializing Setup Environment" }
+$initMessage = if ($Install) {
+    "Preparing Installation Environment"
+} elseif ($Update) {
+    "Preparing Update Environment"
+} else {
+    "Initializing Setup Environment"
+}
 Invoke-LoadingAnimation -Message $initMessage -DurationSeconds 3
 Write-Host " [+] Environment Initialized." -ForegroundColor Green
 
 
-if ($Update) {
+if ($bootstrapMode) {
     # ==========================================
-    Write-Header "Downloading Update"
+    $bootstrapHeader = if ($Install) { "Downloading SilentSheet" } else { "Downloading Update" }
+    Write-Header $bootstrapHeader
     # ==========================================
 
-    $projectRoot = $PWD.Path
+    # Prefer $PSScriptRoot (always the folder containing this .ps1) so the
+    # extraction can never accidentally land in the wrong directory if the
+    # script is invoked from a different cwd. Falls back to $PWD only if
+    # $PSScriptRoot isn't set (e.g. piped via stdin).
+    $projectRoot = if ($PSScriptRoot) { $PSScriptRoot } else { $PWD.Path }
     $zipUrl  = "https://github.com/zpratikpathak/SilentSheet-Ultimatix/archive/refs/heads/home.zip"
     $tmpZip  = Join-Path $env:TEMP "silentsheet_update.zip"
     $tmpDir  = Join-Path $env:TEMP "silentsheet_update"
@@ -724,7 +755,7 @@ Write-Host " -----------------------------------" -ForegroundColor DarkGray
 Write-Host "`n [+] You are all set to go!" -ForegroundColor Green
 Write-Host ""
 
-if ($Update) {
+if ($bootstrapMode) {
     Write-Host " Opening GitHub repository in your browser..." -ForegroundColor Cyan
     Start-Process "https://github.com/zpratikpathak/SilentSheet-Ultimatix"
     Write-Host ""
