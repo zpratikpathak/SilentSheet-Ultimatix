@@ -93,6 +93,50 @@ function Invoke-LoadingAnimation {
     [System.Console]::CursorVisible = $true
 }
 
+function Write-ErrorReport {
+    param(
+        [string]$Context,
+        [string]$Message,
+        [string]$Details = ""
+    )
+    try {
+        $logsDir = Join-Path $PWD.Path "logs"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+        }
+        $ts = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+        $md = Join-Path $logsDir "${ts}_error.md"
+
+        $fence = [string]::new('`', 3)
+        $when  = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $lines = @(
+            "# SilentSheet error report",
+            "",
+            "**When:** $when",
+            "**Where:** $Context (setup.ps1)",
+            "",
+            "## Error",
+            "",
+            $Message,
+            ""
+        )
+        if ($Details) {
+            $lines += @(
+                "## Details",
+                "",
+                "${fence}text",
+                $Details,
+                $fence,
+                ""
+            )
+        }
+        Set-Content -Path $md -Value ($lines -join "`r`n") -Encoding UTF8
+        Write-Host " [i] Diagnostic report saved to $md" -ForegroundColor DarkGray
+    } catch {
+        # Last-resort: never let logging itself crash the script.
+    }
+}
+
 # --- Setup Start ---
 Clear-Host
 
@@ -179,7 +223,10 @@ if ($Update) {
     Remove-Job -Job $downloadJob
 
     if (-not $downloadResult.Success -or -not (Test-Path $tmpZip)) {
-        Write-Host " [X] Download failed: $($downloadResult.Error)" -ForegroundColor Red
+        Write-ErrorReport -Context "Downloading update package" `
+            -Message "Failed to download the update archive from GitHub." `
+            -Details $downloadResult.Error
+        Write-Host " [X] Couldn't download the update. See logs folder for details." -ForegroundColor Red
         Write-Host "     Check your internet connection and try again." -ForegroundColor DarkGray
         Read-Host "Press Enter to exit"
         exit 1
@@ -191,7 +238,10 @@ if ($Update) {
     try {
         Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force -ErrorAction Stop
     } catch {
-        Write-Host " [X] Extraction failed: $_" -ForegroundColor Red
+        Write-ErrorReport -Context "Extracting update package" `
+            -Message "Failed to extract the downloaded update archive." `
+            -Details "$_"
+        Write-Host " [X] Couldn't extract the update. See logs folder for details." -ForegroundColor Red
         Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
         Read-Host "Press Enter to exit"
         exit 1
@@ -201,7 +251,10 @@ if ($Update) {
     # (e.g. SilentSheet-Ultimatix-home). Locate it.
     $extractedRoot = Get-ChildItem -Path $tmpDir -Directory | Select-Object -First 1
     if (-not $extractedRoot) {
-        Write-Host " [X] Update package is empty or malformed." -ForegroundColor Red
+        Write-ErrorReport -Context "Extracting update package" `
+            -Message "The downloaded update archive did not contain the expected top-level folder." `
+            -Details "Inspected: $tmpDir"
+        Write-Host " [X] The update package looks empty or malformed. See logs folder for details." -ForegroundColor Red
         Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
         Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
         Read-Host "Press Enter to exit"
@@ -216,7 +269,10 @@ if ($Update) {
     try {
         Copy-Item -Path (Join-Path $extractedRoot.FullName "*") -Destination $projectRoot -Recurse -Force -ErrorAction Stop
     } catch {
-        Write-Host " [X] Failed to apply update: $_" -ForegroundColor Red
+        Write-ErrorReport -Context "Applying update files" `
+            -Message "Failed to copy the new files over the project root." `
+            -Details "$_"
+        Write-Host " [X] Couldn't apply the update. See logs folder for details." -ForegroundColor Red
         Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
         Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
         Read-Host "Press Enter to exit"
@@ -301,6 +357,9 @@ if ($missing.Count -gt 0) {
     }
 
     if (!(Get-Command "winget" -ErrorAction SilentlyContinue)) {
+        Write-ErrorReport -Context "Checking prerequisites" `
+            -Message "winget is not available on this system, so SilentSheet cannot auto-install missing software." `
+            -Details ("Missing: " + (($missing | ForEach-Object { $_.Name }) -join ', '))
         Write-Host "`n [X] winget is not available on this system. Please install the missing software manually and re-run this script." -ForegroundColor Red
         exit 1
     }
@@ -323,6 +382,9 @@ if ($missing.Count -gt 0) {
 
         # Re-check critical prerequisites after installation
         if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
+            Write-ErrorReport -Context "Verifying Python after install" `
+                -Message "Python was installed via winget but is still not on PATH." `
+                -Details "User likely needs to restart the terminal or add Python to PATH manually."
             Write-Host "`n [X] Python is still not found in PATH after installation." -ForegroundColor Red
             Write-Host "     Please restart your terminal or add Python to PATH manually, then re-run this script." -ForegroundColor DarkGray
             exit 1
@@ -333,6 +395,9 @@ if ($missing.Count -gt 0) {
             if (Test-Path $p) { $chromeFound = $true; break }
         }
         if (-not $chromeFound) {
+            Write-ErrorReport -Context "Verifying Google Chrome after install" `
+                -Message "Google Chrome was installed via winget but the executable was not found in any of the expected locations." `
+                -Details ("Searched: " + ($chromePaths -join '; '))
             Write-Host "`n [X] Google Chrome is still not found after installation." -ForegroundColor Red
             Write-Host "     Please restart your terminal and re-run this script." -ForegroundColor DarkGray
             exit 1
@@ -340,7 +405,11 @@ if ($missing.Count -gt 0) {
 
         Write-Host "`n [+] All prerequisites are now installed." -ForegroundColor Green
     } else {
-        Write-Host "`n [X] Cannot continue without: $(($missing | ForEach-Object { $_.Name }) -join ', '). Exiting." -ForegroundColor Red
+        $missingNames = ($missing | ForEach-Object { $_.Name }) -join ', '
+        Write-ErrorReport -Context "Checking prerequisites" `
+            -Message "User declined to install missing prerequisites." `
+            -Details "Missing: $missingNames"
+        Write-Host "`n [X] Cannot continue without: $missingNames. Exiting." -ForegroundColor Red
         exit 1
     }
 }
@@ -360,7 +429,10 @@ if ($UseUv) {
             Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
             uv pip install -r requirements.txt
             if ($LASTEXITCODE -ne 0) {
-                Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
+                Write-ErrorReport -Context "Installing Python dependencies (uv, online fallback)" `
+                    -Message "uv failed to install dependencies after falling back to online mode." `
+                    -Details "uv pip install -r requirements.txt exited with code $LASTEXITCODE"
+                Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
                 exit 1
             }
         }
@@ -368,7 +440,10 @@ if ($UseUv) {
         Write-Host " Downloading dependencies from the internet with uv..." -ForegroundColor Cyan
         uv pip install -r requirements.txt
         if ($LASTEXITCODE -ne 0) {
-            Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
+            Write-ErrorReport -Context "Installing Python dependencies (uv, online)" `
+                -Message "uv failed to install dependencies from the internet." `
+                -Details "uv pip install -r requirements.txt exited with code $LASTEXITCODE"
+            Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
             exit 1
         }
     }
@@ -382,7 +457,10 @@ if ($UseUv) {
             Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
             .\.venv\Scripts\pip.exe install -r requirements.txt | Out-Null
             if ($LASTEXITCODE -ne 0) {
-                Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
+                Write-ErrorReport -Context "Installing Python dependencies (pip, online fallback)" `
+                    -Message "pip failed to install dependencies after falling back to online mode." `
+                    -Details ".\.venv\Scripts\pip.exe install -r requirements.txt exited with code $LASTEXITCODE"
+                Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
                 exit 1
             }
         }
@@ -390,7 +468,10 @@ if ($UseUv) {
         Write-Host " Downloading dependencies from the internet with pip..." -ForegroundColor Cyan
         .\.venv\Scripts\pip.exe install -r requirements.txt | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host " [X] Online dependency installation failed. Check your network connection." -ForegroundColor Red
+            Write-ErrorReport -Context "Installing Python dependencies (pip, online)" `
+                -Message "pip failed to install dependencies from the internet." `
+                -Details ".\.venv\Scripts\pip.exe install -r requirements.txt exited with code $LASTEXITCODE"
+            Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
             exit 1
         }
     }

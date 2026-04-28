@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 import tomllib
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from urllib.request import urlopen
 
@@ -32,6 +32,8 @@ from selenium.common.exceptions import TimeoutException
 from winotify import Notification
 
 import pratikpathak
+
+import error_logger
 
 PROTOCOL_NAME = "silentsheet"
 
@@ -405,7 +407,12 @@ def main() -> None:
     # Wait for internet connectivity (ethernet may not be plugged in yet)
     print("Waiting for internet...")
     if not wait_for_internet():
-        notify("Timesheet - Error", "No internet after 10 minutes. Aborting.")
+        error_logger.write_report("Waiting for internet")
+        notify(
+            "SilentSheet",
+            "Couldn't connect to the internet. SilentSheet will try again on the next login.",
+            duration="short",
+        )
         return
     print("Internet available.")
     time.sleep(5)  # brief pause to ensure stable connection
@@ -500,30 +507,16 @@ def main() -> None:
                     driver.refresh()
                     time.sleep(3)
                     continue
-                # Final attempt failed — dump debug info
-                debug_url = driver.current_url
-                debug_title = driver.title
-                print("DEBUG: Timed out waiting for #form1")
-                print(f"DEBUG: Current URL   = {debug_url}")
-                print(f"DEBUG: Page title    = {debug_title}")
+                # Final attempt failed — capture a diagnostic report and re-raise
+                # so the outer except clause can show a friendly toast.
                 logger.error(
                     "Timed out waiting for #form1. URL=%s, title=%s",
-                    debug_url,
-                    debug_title,
+                    driver.current_url,
+                    driver.title,
                 )
-
-                debug_dir = SCRIPT_DIR / "debug"
-                debug_dir.mkdir(exist_ok=True)
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-                screenshot_path = debug_dir / f"screenshot_{timestamp}.png"
-                driver.save_screenshot(str(screenshot_path))
-                print(f"DEBUG: Screenshot saved to {screenshot_path}")
-
-                page_source_path = debug_dir / f"page_source_{timestamp}.html"
-                page_source_path.write_text(driver.page_source, encoding="utf-8")
-                print(f"DEBUG: Page source saved to {page_source_path}")
-                logger.error("Page source saved to %s", page_source_path)
+                error_logger.write_report(
+                    "Loading login page", driver=driver
+                )
                 raise
 
         # Step 3: Type the employee ID
@@ -710,10 +703,16 @@ def main() -> None:
                     "Verification failed: expected '9', got '%s'", verified_value
                 )
                 print(f"Verification failed: expected '9', got '{verified_value}'")
+                error_logger.write_report(
+                    "Verifying timesheet hours",
+                    driver=driver,
+                    extra={"expected": "9", "found": verified_value},
+                )
                 notify(
-                    "Timesheet - Warning",
-                    f"Submitted but verification found '{verified_value}' hours instead of 9. "
-                    "Please check manually.",
+                    "SilentSheet",
+                    "Saved the timesheet, but the hours don't look right. "
+                    "Please open it to double-check.",
+                    duration="short",
                 )
 
         time.sleep(3)
@@ -723,6 +722,10 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
 
         if isinstance(e, TimeoutError) and "timed out" in str(e).lower():
+            error_logger.write_report(
+                "EasyAuth approval", exc=e, driver=driver
+            )
+
             startup_dir = (
                 Path.home()
                 / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
@@ -747,13 +750,21 @@ def main() -> None:
                 vbs_to_launch.write_text(vbs_content)
 
             notify(
-                "Timesheet - Timeout",
+                "SilentSheet",
                 "EasyAuth request timed out. Click Retry to try again.",
                 action_label="Retry",
                 action_launch=f"file:///{vbs_to_launch.as_posix()}",
             )
         else:
-            notify("Timesheet - Error", str(e))
+            error_logger.write_report(
+                "Filling timesheet", exc=e, driver=driver
+            )
+            notify(
+                "SilentSheet",
+                "Something went wrong while filling your timesheet. "
+                "A diagnostic report was saved to the logs folder.",
+                duration="short",
+            )
 
         if not headless:
             input("Press Enter to close the browser...")

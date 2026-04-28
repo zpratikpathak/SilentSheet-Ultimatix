@@ -31,6 +31,8 @@ try:
 except ImportError:
     winreg = None
 
+import error_logger
+
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
 WAIT_TIMEOUT = 30
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -347,6 +349,9 @@ def main() -> None:
             time.sleep(1)
         else:
             print("EasyAuth timed out.", file=sys.stderr)
+            error_logger.write_report(
+                "Waiting for EasyAuth approval (task list)", driver=driver
+            )
             if not choose_mode:
                 print("SCRAPE_RESULT:[]")
             return
@@ -356,6 +361,9 @@ def main() -> None:
             timeout_div = driver.find_elements(By.ID, "timeout")
             if timeout_div and timeout_div[0].is_displayed():
                 print("EasyAuth timed out on server side.", file=sys.stderr)
+                error_logger.write_report(
+                    "Waiting for EasyAuth approval (task list)", driver=driver
+                )
                 if not choose_mode:
                     print("SCRAPE_RESULT:[]")
                 return
@@ -405,7 +413,7 @@ def main() -> None:
                 _choose_interactive(tasks)
             else:
                 print("\n  No tasks found on the timesheet. Cannot update config.")
-                notify("Timesheet - No Tasks", "No tasks found on the timesheet page.")
+                notify("SilentSheet", "No tasks found on the timesheet page.")
         else:
             print(f"SCRAPE_RESULT:{json.dumps(tasks)}")
 
@@ -414,7 +422,14 @@ def main() -> None:
         if not choose_mode:
             print("SCRAPE_RESULT:[]")
         else:
-            notify("Timesheet - Error", f"Failed to fetch tasks: {e}")
+            error_logger.write_report(
+                "Fetching task list", exc=e, driver=driver
+            )
+            notify(
+                "SilentSheet",
+                "Couldn't load the task list right now. "
+                "A diagnostic report was saved to the logs folder.",
+            )
     finally:
         driver.quit()
 
