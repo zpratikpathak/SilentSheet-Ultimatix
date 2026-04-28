@@ -32,8 +32,16 @@ from winotify import Notification
 
 import pratikpathak
 
+PROTOCOL_NAME = "silentsheet"
+
+
+def _is_protocol_launch() -> bool:
+    """Check if the script was launched via the silentsheet: URL protocol."""
+    return len(sys.argv) > 1 and sys.argv[1].startswith(f"{PROTOCOL_NAME}:")
+
+
 # Defer heavy side effects so lightweight flags like --mark-done-today stay fast.
-if "--mark-done-today" not in sys.argv:
+if "--mark-done-today" not in sys.argv and not _is_protocol_launch():
     pratikpathak.main()
 
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
@@ -281,6 +289,35 @@ def notify(
     toast.show()
 
 
+def _register_protocol() -> None:
+    """Register the silentsheet: URL protocol so toast action buttons work.
+
+    Windows toast notifications use activationType="protocol". The file:///
+    scheme is silently blocked for script files (.vbs/.bat/.ps1) on
+    Windows 10/11. A custom registered protocol avoids this restriction.
+    """
+    if winreg is None:
+        return
+    python_exe = Path(sys.executable)
+    pythonw_exe = python_exe.parent / "pythonw.exe"
+    if not pythonw_exe.exists():
+        pythonw_exe = python_exe
+    script_path = SCRIPT_DIR / "fill_timesheet.py"
+    command = f'"{pythonw_exe}" "{script_path}" "%1"'
+    try:
+        reg = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+        key_path = f"SOFTWARE\\Classes\\{PROTOCOL_NAME}"
+        key = winreg.CreateKey(reg, key_path)
+        with key:
+            winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f"URL:{PROTOCOL_NAME}")
+            winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
+            subkey = winreg.CreateKey(key, r"shell\open\command")
+            with subkey:
+                winreg.SetValueEx(subkey, "", 0, winreg.REG_SZ, command)
+    except OSError:
+        pass
+
+
 def _mark_done_vbs() -> Path:
     """Return the path to a VBS script that marks today as done (created on demand)."""
     vbs_path = SCRIPT_DIR / "silentsheet_markdone.vbs"
@@ -299,26 +336,37 @@ def _mark_done_vbs() -> Path:
     return vbs_path
 
 
+def _handle_mark_done(mark_date: str | None) -> None:
+    """Validate the date and mark today as done, or show an expiry notice."""
+    if mark_date != str(date.today()):
+        notify(
+            "Timesheet",
+            "This notification has expired. It was from a previous day.",
+            duration="short",
+        )
+        print(f"Stale mark-done request (date={mark_date}). Ignoring.")
+        return
+    mark_done_today()
+    mark_notified_today()
+    notify(
+        "Timesheet", "Marked as done for today. Won't run again.", duration="short"
+    )
+    print("Marked today as done via notification button.")
+
+
 def main() -> None:
-    # Invoked by the "Mark as Done" toast button — record today and exit silently.
+    # Handle protocol-launched mark-done requests (silentsheet:markdone-YYYY-MM-DD)
+    if _is_protocol_launch():
+        action = sys.argv[1].split(":", 1)[1]
+        if action.startswith("markdone-"):
+            _handle_mark_done(action[len("markdone-"):])
+        return
+
+    # Invoked by the "Mark as Done" toast button (legacy VBS path).
     if "--mark-done-today" in sys.argv:
-        # Validate the date to reject stale notifications from previous days.
         idx = sys.argv.index("--mark-done-today")
         mark_date = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else None
-        if mark_date != str(date.today()):
-            notify(
-                "Timesheet",
-                "This notification has expired. It was from a previous day.",
-                duration="short",
-            )
-            print(f"Stale mark-done request (date={mark_date}). Ignoring.")
-            return
-        mark_done_today()
-        mark_notified_today()
-        notify(
-            "Timesheet", "Marked as done for today. Won't run again.", duration="short"
-        )
-        print("Marked today as done via notification button.")
+        _handle_mark_done(mark_date)
         return
 
     headless = "--headless" in sys.argv
@@ -489,8 +537,8 @@ def main() -> None:
                 logger.error("Could not create EasyAuth image: %s", image_error)
                 print(f"Warning: Could not create EasyAuth image: {image_error}")
 
-        mark_done_vbs_path = _mark_done_vbs()
-        mark_done_launch = f"file:///{mark_done_vbs_path.as_posix()}"
+        _register_protocol()
+        mark_done_launch = f"{PROTOCOL_NAME}:markdone-{date.today()}"
 
         notify(
             f"EasyAuth: {auth_number}",
