@@ -1,4 +1,5 @@
-"""Timesheet automation script using Selenium to log in via EasyAuth.
+"""
+Timesheet automation script using Selenium to log in via EasyAuth.
 
 Designed to run on Windows startup. Tracks completion per day so it only
 runs once. Shows a Windows toast notification with the EasyAuth number.
@@ -31,7 +32,9 @@ from winotify import Notification
 
 import pratikpathak
 
-pratikpathak.main()
+# Defer heavy side effects so lightweight flags like --mark-done-today stay fast.
+if "--mark-done-today" not in sys.argv:
+    pratikpathak.main()
 
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
 WAIT_TIMEOUT = 30  # seconds to wait for elements
@@ -286,10 +289,11 @@ def _mark_done_vbs() -> Path:
     if not pythonw_exe.exists():
         pythonw_exe = python_exe
     script_path = SCRIPT_DIR / "fill_timesheet.py"
+    today_str = str(date.today())
     vbs_content = (
         'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.CurrentDirectory = "{SCRIPT_DIR}"\n'
-        f'WshShell.Run chr(34) & "{pythonw_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --mark-done-today", 0, False\n'
+        f'WshShell.Run chr(34) & "{pythonw_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --mark-done-today {today_str}", 0, False\n'
     )
     vbs_path.write_text(vbs_content)
     return vbs_path
@@ -298,8 +302,22 @@ def _mark_done_vbs() -> Path:
 def main() -> None:
     # Invoked by the "Mark as Done" toast button — record today and exit silently.
     if "--mark-done-today" in sys.argv:
+        # Validate the date to reject stale notifications from previous days.
+        idx = sys.argv.index("--mark-done-today")
+        mark_date = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else None
+        if mark_date != str(date.today()):
+            notify(
+                "Timesheet",
+                "This notification has expired. It was from a previous day.",
+                duration="short",
+            )
+            print(f"Stale mark-done request (date={mark_date}). Ignoring.")
+            return
         mark_done_today()
         mark_notified_today()
+        notify(
+            "Timesheet", "Marked as done for today. Won't run again.", duration="short"
+        )
         print("Marked today as done via notification button.")
         return
 
@@ -471,12 +489,15 @@ def main() -> None:
                 logger.error("Could not create EasyAuth image: %s", image_error)
                 print(f"Warning: Could not create EasyAuth image: {image_error}")
 
+        mark_done_vbs_path = _mark_done_vbs()
+        mark_done_launch = f"file:///{mark_done_vbs_path.as_posix()}"
+
         notify(
             f"EasyAuth: {auth_number}",
             "Tap this number on your Authenticator app to approve.",
             image_path=auth_image_path,
             action_label="Mark as Done",
-            action_launch=f"file:///{_mark_done_vbs().as_posix()}",
+            action_launch=mark_done_launch,
         )
 
         # Wait for the user to approve on their device and the page to proceed
@@ -498,7 +519,7 @@ def main() -> None:
                     "Tap this number on your Authenticator app to approve.",
                     image_path=auth_image_path,
                     action_label="Mark as Done",
-                    action_launch=f"file:///{_mark_done_vbs().as_posix()}",
+                    action_launch=mark_done_launch,
                 )
                 last_notify_time = time.time()
             time.sleep(1)
