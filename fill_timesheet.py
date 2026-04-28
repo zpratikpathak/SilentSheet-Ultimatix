@@ -90,11 +90,15 @@ def check_for_update() -> None:
                 remote_config = tomllib.loads(resp.read().decode())
             remote_version = remote_config["project"]["version"]
             if remote_version != LOCAL_VERSION:
+                _register_protocol()
                 notify(
                     "SilentSheet Update Available",
-                    f"v{LOCAL_VERSION} → v{remote_version}. " "Click to open GitHub.",
-                    launch="https://github.com/zpratikpathak/SilentSheet-Ultimatix?tab=readme-ov-file#updating",
-                    duration="short",
+                    f"v{LOCAL_VERSION} → v{remote_version}. "
+                    "Click 'Update Now' to install.",
+                    launch=f"{PROTOCOL_NAME}:update",
+                    action_label="Update Now",
+                    action_launch=f"{PROTOCOL_NAME}:update",
+                    duration="long",
                 )
                 print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
                 time.sleep(7)
@@ -369,6 +373,21 @@ def main() -> None:
             script_path = SCRIPT_DIR / "scrape_tasks.py"
             subprocess.Popen(
                 [str(console_python), str(script_path), "--choose"],
+                cwd=str(SCRIPT_DIR),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+        elif action == "update":
+            # Launch setup.ps1 -Update in a visible console window so the user
+            # can watch download/extract/setup progress.
+            setup_ps1 = SCRIPT_DIR / "setup.ps1"
+            subprocess.Popen(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", str(setup_ps1),
+                    "-Update",
+                ],
                 cwd=str(SCRIPT_DIR),
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )

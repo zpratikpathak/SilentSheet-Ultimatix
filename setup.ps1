@@ -1,3 +1,5 @@
+param([switch]$Update)
+
 function Select-Option {
     param(
         [string]$Prompt,
@@ -103,11 +105,129 @@ $banner = @"
 "@
 
 Write-Host $banner -ForegroundColor Cyan
-Write-Host "                                   SETUP CONFIGURATION`n" -ForegroundColor DarkGray
+$bannerSubtitle = if ($Update) { "UPDATING TO LATEST VERSION" } else { "SETUP CONFIGURATION" }
+Write-Host "                                   $bannerSubtitle`n" -ForegroundColor DarkGray
 
 # Simulate a brief loading sequence for premium feel
-Invoke-LoadingAnimation -Message "Initializing Setup Environment" -DurationSeconds 3
+$initMessage = if ($Update) { "Preparing Update Environment" } else { "Initializing Setup Environment" }
+Invoke-LoadingAnimation -Message $initMessage -DurationSeconds 3
 Write-Host " [+] Environment Initialized." -ForegroundColor Green
+
+
+if ($Update) {
+    # ==========================================
+    Write-Header "Downloading Update"
+    # ==========================================
+
+    $projectRoot = $PWD.Path
+    $zipUrl  = "https://github.com/zpratikpathak/SilentSheet-Ultimatix/archive/refs/heads/home.zip"
+    $tmpZip  = Join-Path $env:TEMP "silentsheet_update.zip"
+    $tmpDir  = Join-Path $env:TEMP "silentsheet_update"
+
+    # Step 1: Stop any running SilentSheet processes so we can overwrite locked
+    # files (.venv\Scripts\python*.exe, favicon.ico, etc.). Mirrors uninstall.ps1.
+    Write-Host " Stopping running SilentSheet processes..." -ForegroundColor Cyan
+    try {
+        $running = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+            ($_.Name -match "^pythonw?\.exe$" -and $_.ExecutablePath -like "$projectRoot\*") -or
+            ($_.Name -eq "wscript.exe" -and $_.CommandLine -like "*$projectRoot\*")
+        }
+        $stoppedCount = 0
+        foreach ($p in $running) {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            $stoppedCount++
+        }
+        if ($stoppedCount -gt 0) {
+            Write-Host " [+] Stopped $stoppedCount background process(es)." -ForegroundColor Green
+            # Give the OS a moment to release file handles
+            Start-Sleep -Milliseconds 800
+        } else {
+            Write-Host " [+] No background processes were running." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host " [!] Could not enumerate processes: $_" -ForegroundColor Yellow
+    }
+
+    # Step 2: Download the latest archive from GitHub
+    Write-Host " Downloading latest release from GitHub..." -ForegroundColor Cyan
+    if (Test-Path $tmpZip) { Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    $downloadJob = Start-Job -ScriptBlock {
+        param($url, $out)
+        try {
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -ErrorAction Stop
+            return @{ Success = $true; Error = $null }
+        } catch {
+            return @{ Success = $false; Error = $_.Exception.Message }
+        }
+    } -ArgumentList $zipUrl, $tmpZip
+
+    [System.Console]::CursorVisible = $false
+    $spinner = @('-', '\', '|', '/')
+    $spinIdx = 0
+    while ($downloadJob.State -eq 'Running') {
+        Write-Host "`r  [$($spinner[$spinIdx % 4])] Downloading update package..." -NoNewline -ForegroundColor Cyan
+        $spinIdx++
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Host "`r                                                            `r" -NoNewline
+    [System.Console]::CursorVisible = $true
+
+    $downloadResult = Receive-Job -Job $downloadJob
+    Remove-Job -Job $downloadJob
+
+    if (-not $downloadResult.Success -or -not (Test-Path $tmpZip)) {
+        Write-Host " [X] Download failed: $($downloadResult.Error)" -ForegroundColor Red
+        Write-Host "     Check your internet connection and try again." -ForegroundColor DarkGray
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host " [+] Update package downloaded." -ForegroundColor Green
+
+    # Step 3: Extract the archive to a temp folder
+    Write-Host " Extracting update package..." -ForegroundColor Cyan
+    try {
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force -ErrorAction Stop
+    } catch {
+        Write-Host " [X] Extraction failed: $_" -ForegroundColor Red
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    # GitHub archives wrap everything in a single top-level folder
+    # (e.g. SilentSheet-Ultimatix-home). Locate it.
+    $extractedRoot = Get-ChildItem -Path $tmpDir -Directory | Select-Object -First 1
+    if (-not $extractedRoot) {
+        Write-Host " [X] Update package is empty or malformed." -ForegroundColor Red
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host " [+] Update package extracted." -ForegroundColor Green
+
+    # Step 4: Copy contents over the project root (overwrite). User-state files
+    # (config.toml, .silentsheet_state.json, .venv\, *.log, *.vbs) are gitignored
+    # and therefore not in the zip, so they are preserved automatically.
+    Write-Host " Applying update files..." -ForegroundColor Cyan
+    try {
+        Copy-Item -Path (Join-Path $extractedRoot.FullName "*") -Destination $projectRoot -Recurse -Force -ErrorAction Stop
+    } catch {
+        Write-Host " [X] Failed to apply update: $_" -ForegroundColor Red
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host " [+] Files updated successfully." -ForegroundColor Green
+
+    # Step 5: Cleanup
+    Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+    Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 
 # ==========================================
@@ -522,5 +642,11 @@ Write-Host "  Auto-Run      : " -NoNewline; Write-Host $autoRunLabel -Foreground
 Write-Host " -----------------------------------" -ForegroundColor DarkGray
 Write-Host "`n [+] You are all set to go!" -ForegroundColor Green
 Write-Host ""
+
+if ($Update) {
+    Write-Host " Opening GitHub repository in your browser..." -ForegroundColor Cyan
+    Start-Process "https://github.com/zpratikpathak/SilentSheet-Ultimatix"
+    Write-Host ""
+}
 
 Read-Host "Press Enter to exit"
