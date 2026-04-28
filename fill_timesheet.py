@@ -8,6 +8,7 @@ runs once. Shows a Windows toast notification with the EasyAuth number.
 import json
 import logging
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -348,9 +349,7 @@ def _handle_mark_done(mark_date: str | None) -> None:
         return
     mark_done_today()
     mark_notified_today()
-    notify(
-        "Timesheet", "Marked as done for today. Won't run again.", duration="short"
-    )
+    notify("Timesheet", "Marked as done for today. Won't run again.", duration="short")
     print("Marked today as done via notification button.")
 
 
@@ -359,7 +358,20 @@ def main() -> None:
     if _is_protocol_launch():
         action = sys.argv[1].split(":", 1)[1]
         if action.startswith("markdone-"):
-            _handle_mark_done(action[len("markdone-"):])
+            _handle_mark_done(action[len("markdone-") :])
+        elif action == "choosetask":
+            # Launch scrape_tasks.py --choose in a visible console window
+            python_exe = Path(sys.executable)
+            # Use python.exe (not pythonw.exe) so the console is visible
+            console_python = python_exe.parent / "python.exe"
+            if not console_python.exists():
+                console_python = python_exe
+            script_path = SCRIPT_DIR / "scrape_tasks.py"
+            subprocess.Popen(
+                [str(console_python), str(script_path), "--choose"],
+                cwd=str(SCRIPT_DIR),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
         return
 
     # Invoked by the "Mark as Done" toast button (legacy VBS path).
@@ -623,19 +635,20 @@ def main() -> None:
         try:
             effort_input = wait.until(find_task_effort_input)
         except Exception:
-            # Fallback: first visible effort input in either section
-            print(f"Task '{TASK_NAME}' / '{CHARGE_TYPE}' not found, trying fallback...")
-            effort_input = None
-            for fid in ("effortAssign00", "effortUnassign00"):
-                matches = driver.find_elements(By.ID, fid)
-                if matches and matches[0].is_displayed():
-                    effort_input = matches[0]
-                    print(f"Using fallback input: {fid}")
-                    break
-            if effort_input is None:
-                raise Exception(
-                    f"No effort input found for task '{TASK_NAME}' with charge type '{CHARGE_TYPE}'"
-                )
+            # Task not found — notify user and offer interactive task chooser
+            print(f"Task '{TASK_NAME}' / '{CHARGE_TYPE}' not found on the timesheet.")
+            _register_protocol()
+            choose_launch = f"{PROTOCOL_NAME}:choosetask"
+            notify(
+                "Timesheet - Task Not Found",
+                f"'{TASK_NAME}' [{CHARGE_TYPE}] is not on the timesheet. Click to update the task.",
+                launch=choose_launch,
+                action_label="Update Task",
+                action_launch=choose_launch,
+            )
+            print("Notification sent. User can click to choose a task.")
+            driver.quit()
+            return
 
         # Check current value before filling
         current_value = effort_input.get_attribute("value").strip()

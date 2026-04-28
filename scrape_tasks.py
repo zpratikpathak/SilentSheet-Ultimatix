@@ -6,12 +6,15 @@ a JSON result line to stdout for setup.ps1 to parse.
 
 Usage:
     python scrape_tasks.py <employee_id>
+    python scrape_tasks.py --choose
 """
 
 import json
+import subprocess
 import sys
 import time
 import tempfile
+import tomllib
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -139,13 +142,89 @@ def notify(title: str, message: str, image_path: Path | None = None) -> None:
     toast.show()
 
 
+def _update_config(task_name: str, charge_type: str) -> None:
+    """Update config.toml with the selected task_name and charge_type."""
+    config_file = SCRIPT_DIR / "config.toml"
+    with open(config_file, "r", encoding="utf-8-sig") as f:
+        config = tomllib.loads(f.read())
+    employee_id = config["employee"]["EMPLOYEE_ID"]
+    content = (
+        "[employee]\n"
+        f'EMPLOYEE_ID = "{employee_id}"\n'
+        "\n"
+        "[timesheet]\n"
+        f'task_name = "{task_name}"\n'
+        f'charge_type = "{charge_type}"\n'
+    )
+    config_file.write_text(content, encoding="utf-8")
+
+
+def _choose_interactive(tasks: list[dict]) -> None:
+    """Present a numbered menu for the user to pick a task, update config, and auto-retry."""
+    print(f"\n{'=' * 55}")
+    print("  Available Tasks on Timesheet")
+    print(f"{'=' * 55}\n")
+    for i, t in enumerate(tasks, 1):
+        print(f"  [{i}] {t['task_name']}  [{t['charge_type']}]")
+    print()
+
+    while True:
+        try:
+            choice = input("  Enter the number of your task: ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(tasks):
+                break
+            print(f"  Please enter a number between 1 and {len(tasks)}.")
+        except (ValueError, EOFError):
+            print(f"  Please enter a number between 1 and {len(tasks)}.")
+
+    selected = tasks[idx]
+    task_name = selected["task_name"]
+    charge_type = selected["charge_type"]
+
+    print(f"\n  Selected: {task_name} [{charge_type}]")
+    _update_config(task_name, charge_type)
+    print("  [+] config.toml updated.\n")
+
+    notify(
+        "Timesheet - Config Updated",
+        f"Task set to '{task_name}' [{charge_type}]. Retrying...",
+    )
+
+    # Auto-retry fill_timesheet.py --headless in the background
+    python_exe = Path(sys.executable)
+    pythonw_exe = python_exe.parent / "pythonw.exe"
+    if not pythonw_exe.exists():
+        pythonw_exe = python_exe
+    script_path = SCRIPT_DIR / "fill_timesheet.py"
+    subprocess.Popen(
+        [str(pythonw_exe), str(script_path), "--headless"],
+        cwd=str(SCRIPT_DIR),
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+    )
+    print("  [+] SilentSheet is retrying in the background.")
+    print("      You will be notified when it needs EasyAuth or finishes.\n")
+
+
 def main() -> None:
-    if len(sys.argv) < 2:
+    choose_mode = "--choose" in sys.argv
+
+    if choose_mode:
+        # Read employee ID from config.toml
+        config_file = SCRIPT_DIR / "config.toml"
+        if not config_file.exists():
+            print("Error: config.toml not found. Run setup.ps1 first.", file=sys.stderr)
+            sys.exit(1)
+        with open(config_file, "r", encoding="utf-8-sig") as f:
+            config = tomllib.loads(f.read())
+        employee_id = config["employee"]["EMPLOYEE_ID"]
+    elif len(sys.argv) < 2:
         print("Usage: python scrape_tasks.py <employee_id>", file=sys.stderr)
+        print("Usage: python scrape_tasks.py --choose", file=sys.stderr)
         print("SCRAPE_RESULT:[]")
         sys.exit(1)
-
-    employee_id = sys.argv[1]
+    else:
+        employee_id = sys.argv[1]
 
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
@@ -177,7 +256,9 @@ def main() -> None:
                     )
                 ):
                     wait_secs = 5 * attempt
-                    print(f"Connection error (attempt {attempt}/{max_retries}). Retrying in {wait_secs}s...")
+                    print(
+                        f"Connection error (attempt {attempt}/{max_retries}). Retrying in {wait_secs}s..."
+                    )
                     time.sleep(wait_secs)
                 else:
                     raise
@@ -194,7 +275,9 @@ def main() -> None:
                 break
             except TimeoutException:
                 if login_attempt < login_attempts:
-                    print(f"Page failed to load (attempt {login_attempt}/{login_attempts}). Refreshing...")
+                    print(
+                        f"Page failed to load (attempt {login_attempt}/{login_attempts}). Refreshing..."
+                    )
                     driver.refresh()
                     time.sleep(3)
                 else:
@@ -205,12 +288,16 @@ def main() -> None:
         username_input.clear()
         username_input.send_keys(employee_id)
 
-        proceed_button = wait.until(EC.element_to_be_clickable((By.ID, "proceed-button")))
+        proceed_button = wait.until(
+            EC.element_to_be_clickable((By.ID, "proceed-button"))
+        )
         proceed_button.click()
 
         # Step 4: Click EasyAuth and get auth number
         print("Waiting for EasyAuth button...")
-        easyauth_button = wait.until(EC.element_to_be_clickable((By.ID, "easyAuth-btn")))
+        easyauth_button = wait.until(
+            EC.element_to_be_clickable((By.ID, "easyAuth-btn"))
+        )
         easyauth_button.click()
 
         print("Waiting for authentication number...")
@@ -234,7 +321,11 @@ def main() -> None:
             auth_image = create_auth_number_image(auth_number)
         except Exception:
             pass
-        notify(f"EasyAuth: {auth_number}", "Tap this number on your Authenticator app to approve.", image_path=auth_image)
+        notify(
+            f"EasyAuth: {auth_number}",
+            "Tap this number on your Authenticator app to approve.",
+            image_path=auth_image,
+        )
 
         # Step 5: Wait for auth redirect (2 min timeout for manual approval)
         print("Waiting for authentication to complete...")
@@ -247,12 +338,17 @@ def main() -> None:
                 break
             # Re-show notification every 25 seconds
             if time.time() - last_notify_time >= 25:
-                notify(f"EasyAuth: {auth_number}", "Tap this number on your Authenticator app to approve.", image_path=auth_image)
+                notify(
+                    f"EasyAuth: {auth_number}",
+                    "Tap this number on your Authenticator app to approve.",
+                    image_path=auth_image,
+                )
                 last_notify_time = time.time()
             time.sleep(1)
         else:
             print("EasyAuth timed out.", file=sys.stderr)
-            print("SCRAPE_RESULT:[]")
+            if not choose_mode:
+                print("SCRAPE_RESULT:[]")
             return
 
         # Check for timeout error page
@@ -260,7 +356,8 @@ def main() -> None:
             timeout_div = driver.find_elements(By.ID, "timeout")
             if timeout_div and timeout_div[0].is_displayed():
                 print("EasyAuth timed out on server side.", file=sys.stderr)
-                print("SCRAPE_RESULT:[]")
+                if not choose_mode:
+                    print("SCRAPE_RESULT:[]")
                 return
         except Exception:
             pass
@@ -269,7 +366,9 @@ def main() -> None:
 
         # Step 6: Scrape available tasks
         print("Waiting for timesheet page to load...")
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "span.taskNameFont")))
+        wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "span.taskNameFont"))
+        )
         time.sleep(2)  # let Angular finish rendering
 
         tasks = []
@@ -281,7 +380,9 @@ def main() -> None:
             )
             for row in rows:
                 try:
-                    task_name = row.find_element(By.CSS_SELECTOR, "span.taskNameFont").text.strip()
+                    task_name = row.find_element(
+                        By.CSS_SELECTOR, "span.taskNameFont"
+                    ).text.strip()
                 except Exception:
                     continue
                 if not task_name:
@@ -298,13 +399,27 @@ def main() -> None:
                                 tasks.append(entry)
 
         print(f"\nFound {len(tasks)} task(s).")
-        print(f"SCRAPE_RESULT:{json.dumps(tasks)}")
+
+        if choose_mode:
+            if tasks:
+                _choose_interactive(tasks)
+            else:
+                print("\n  No tasks found on the timesheet. Cannot update config.")
+                notify("Timesheet - No Tasks", "No tasks found on the timesheet page.")
+        else:
+            print(f"SCRAPE_RESULT:{json.dumps(tasks)}")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        print("SCRAPE_RESULT:[]")
+        if not choose_mode:
+            print("SCRAPE_RESULT:[]")
+        else:
+            notify("Timesheet - Error", f"Failed to fetch tasks: {e}")
     finally:
         driver.quit()
+
+    if choose_mode:
+        input("Press Enter to close...")
 
 
 if __name__ == "__main__":

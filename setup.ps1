@@ -333,12 +333,35 @@ if (-not $skipConfig) {
     Write-Host "     Approve the EasyAuth request on your Authenticator app when prompted." -ForegroundColor DarkGray
     Write-Host ""
 
-        # Run the standalone scrape script with the employee ID as argument
+        # Run the standalone scrape script in a background job with a loading animation
         if ($UseUv) {
-            $scrapeOutput = uv run --no-sync python scrape_tasks.py $employeeId 2>&1 | Out-String
+            $scrapeJob = Start-Job -ScriptBlock {
+                param($dir, $empId)
+                Set-Location $dir
+                uv run --no-sync python scrape_tasks.py $empId 2>&1 | Out-String
+            } -ArgumentList $PWD, $employeeId
         } else {
-            $scrapeOutput = .\.venv\Scripts\python.exe scrape_tasks.py $employeeId 2>&1 | Out-String
+            $scrapeJob = Start-Job -ScriptBlock {
+                param($dir, $empId)
+                Set-Location $dir
+                & "$dir\.venv\Scripts\python.exe" scrape_tasks.py $empId 2>&1 | Out-String
+            } -ArgumentList $PWD, $employeeId
         }
+
+        # Show loading spinner while the scrape job runs
+        [System.Console]::CursorVisible = $false
+        $spinner = @('-', '\', '|', '/')
+        $spinIdx = 0
+        while ($scrapeJob.State -eq 'Running') {
+            Write-Host "`r  [$($spinner[$spinIdx % 4])] Fetching tasks from timesheet..." -NoNewline -ForegroundColor Cyan
+            $spinIdx++
+            Start-Sleep -Milliseconds 100
+        }
+        Write-Host "`r                                                            `r" -NoNewline
+        [System.Console]::CursorVisible = $true
+
+        $scrapeOutput = Receive-Job -Job $scrapeJob
+        Remove-Job -Job $scrapeJob
 
         # Find the SCRAPE_RESULT: line and parse the JSON
         $resultLine = ($scrapeOutput -split "`n") | Where-Object { $_ -match "^SCRAPE_RESULT:" } | Select-Object -Last 1
