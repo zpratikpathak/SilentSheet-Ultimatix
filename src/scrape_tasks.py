@@ -36,7 +36,8 @@ import error_logger
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
 WAIT_TIMEOUT = 30
 SCRIPT_DIR = Path(__file__).resolve().parent
-APP_ICON_FILE = SCRIPT_DIR / "favicon.ico"
+PROJECT_DIR = SCRIPT_DIR.parent
+APP_ICON_FILE = PROJECT_DIR / "favicon.ico"
 
 CHARGE_TYPE_COLUMNS = {
     "Billable": 2,
@@ -146,7 +147,7 @@ def notify(title: str, message: str, image_path: Path | None = None) -> None:
 
 def _update_config(task_name: str, charge_type: str) -> None:
     """Update config.toml with the selected task_name and charge_type."""
-    config_file = SCRIPT_DIR / "config.toml"
+    config_file = PROJECT_DIR / "config.toml"
     with open(config_file, "r", encoding="utf-8-sig") as f:
         config = tomllib.loads(f.read())
     employee_id = config["employee"]["EMPLOYEE_ID"]
@@ -198,10 +199,10 @@ def _choose_interactive(tasks: list[dict]) -> None:
     pythonw_exe = python_exe.parent / "pythonw.exe"
     if not pythonw_exe.exists():
         pythonw_exe = python_exe
-    script_path = SCRIPT_DIR / "fill_timesheet.py"
+    script_path = PROJECT_DIR / "fill_timesheet.py"
     subprocess.Popen(
         [str(pythonw_exe), str(script_path), "--headless"],
-        cwd=str(SCRIPT_DIR),
+        cwd=str(PROJECT_DIR),
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
     )
     print("  [+] SilentSheet is retrying in the background.")
@@ -213,7 +214,7 @@ def main() -> None:
 
     if choose_mode:
         # Read employee ID from config.toml
-        config_file = SCRIPT_DIR / "config.toml"
+        config_file = PROJECT_DIR / "config.toml"
         if not config_file.exists():
             print("Error: config.toml not found. Run setup.ps1 first.", file=sys.stderr)
             sys.exit(1)

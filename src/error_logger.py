@@ -13,7 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+# This file lives in src/, so SCRIPT_DIR is the project root (one level up).
+SCRIPT_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = SCRIPT_DIR / "logs"
 
 

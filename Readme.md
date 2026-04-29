@@ -52,9 +52,9 @@ uv run python fill_timesheet.py
 ### Auto-Run Management
 
 ```powershell
-uv run python setup_startup.py install-startup   # Run on boot (Startup folder)
-uv run python setup_startup.py install-logon     # Run on login & unlock (Task Scheduler)
-uv run python setup_startup.py uninstall-all     # Remove all auto-run entries
+uv run python src\setup_startup.py install-startup   # Run on boot (Startup folder)
+uv run python src\setup_startup.py install-logon     # Run on login & unlock (Task Scheduler)
+uv run python src\setup_startup.py uninstall-all     # Remove all auto-run entries
 ```
 
 **Windows Startup** places a script in the Startup folder -- runs once when you start your laptop.
@@ -115,14 +115,15 @@ See `example.config.toml` for reference.
 ├── install.ps1            # One-line bootstrap installer (download + run setup)
 ├── setup.ps1              # Interactive setup wizard (also handles -Install / -Update)
 ├── uninstall.ps1          # Clean uninstall
-├── fill_timesheet.py      # Main automation script
-├── scrape_tasks.py        # Detect available tasks from the timesheet
-├── setup_startup.py       # Auto-run install/uninstall (Startup folder & Task Scheduler)
-├── error_logger.py        # Shared diagnostic-report writer used by both Python scripts
+├── fill_timesheet.py      # Main automation script (entry point)
+├── src/                   # Python helper modules
+│   ├── scrape_tasks.py    # Detect available tasks from the timesheet
+│   ├── setup_startup.py   # Auto-run install/uninstall (Startup folder & Task Scheduler)
+│   └── error_logger.py    # Shared diagnostic-report writer used by both Python scripts
 ├── config.toml            # Your config (gitignored)
 ├── example.config.toml    # Config template
 ├── favicon.ico            # App icon for notifications
 ├── pyproject.toml         # Project metadata & dependencies
 ├── logs/                  # Per-incident diagnostic reports + screenshots (gitignored)
-└── silentsheet.log        # Rolling error log (auto-generated, gitignored)
+└── runtime/               # Generated state, log, and VBS launchers (gitignored)
 ```

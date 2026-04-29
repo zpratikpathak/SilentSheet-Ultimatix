@@ -23,9 +23,9 @@ if (Get-Command "uv" -ErrorAction SilentlyContinue) {
 Write-Host "Removing auto-run entries..."
 if (Test-Path ".venv") {
     if ($UseUv) {
-        uv run --no-sync python setup_startup.py uninstall-all
+        uv run --no-sync python src\setup_startup.py uninstall-all
     } else {
-        .\.venv\Scripts\python.exe setup_startup.py uninstall-all
+        .\.venv\Scripts\python.exe src\setup_startup.py uninstall-all
     }
 }
 # Direct cleanup in case the Python env is missing or broken
@@ -36,8 +36,19 @@ if (Test-Path $startupVbs) {
 }
 schtasks /delete /tn "SilentSheet" /f 2>$null | Out-Null
 
-# Remove generated files and packages
-$filesToRemove = @("config.toml", ".silentsheet_state.json", ".timesheet_done", "silentsheet.log", "silentsheet_launcher.vbs", "silentsheet_retry.vbs")
+# Remove generated files and the runtime/ folder.
+# Includes legacy root-level paths (from before the tidy-root refactor) so a
+# single uninstall cleans up both old and new layouts.
+$filesToRemove = @(
+    "config.toml",
+    "runtime",
+    ".silentsheet_state.json",
+    ".timesheet_done",
+    "silentsheet.log",
+    "silentsheet_launcher.vbs",
+    "silentsheet_retry.vbs",
+    "silentsheet_markdone.vbs"
+)
 foreach ($f in $filesToRemove) {
     if (Test-Path $f) {
         Remove-Item $f -Recurse -Force

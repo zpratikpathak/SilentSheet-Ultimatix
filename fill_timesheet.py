@@ -33,7 +33,14 @@ from winotify import Notification
 
 import pratikpathak
 
-import error_logger
+# Helper modules live in src/. Make them importable without forcing the user
+# to set PYTHONPATH or invoke the script as a package.
+SCRIPT_DIR = Path(__file__).resolve().parent
+RUNTIME_DIR = SCRIPT_DIR / "runtime"
+RUNTIME_DIR.mkdir(exist_ok=True)
+sys.path.insert(0, str(SCRIPT_DIR / "src"))
+
+import error_logger  # noqa: E402
 
 PROTOCOL_NAME = "silentsheet"
 
@@ -50,8 +57,7 @@ if "--mark-done-today" not in sys.argv and not _is_protocol_launch():
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
 WAIT_TIMEOUT = 30  # seconds to wait for elements
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-STATE_FILE = SCRIPT_DIR / ".silentsheet_state.json"
+STATE_FILE = RUNTIME_DIR / ".silentsheet_state.json"
 CONFIG_FILE = SCRIPT_DIR / "config.toml"
 APP_ICON_FILE = SCRIPT_DIR / "favicon.ico"
 
@@ -71,7 +77,7 @@ GITHUB_PYPROJECT_URL = (
     "zpratikpathak/SilentSheet-Ultimatix/home/pyproject.toml"
 )
 
-LOG_FILE = SCRIPT_DIR / "silentsheet.log"
+LOG_FILE = RUNTIME_DIR / "silentsheet.log"
 logger = logging.getLogger("silentsheet")
 logger.setLevel(logging.ERROR)
 _file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
@@ -327,7 +333,7 @@ def _register_protocol() -> None:
 
 def _mark_done_vbs() -> Path:
     """Return the path to a VBS script that marks today as done (created on demand)."""
-    vbs_path = SCRIPT_DIR / "silentsheet_markdone.vbs"
+    vbs_path = RUNTIME_DIR / "silentsheet_markdone.vbs"
     python_exe = Path(sys.executable)
     pythonw_exe = python_exe.parent / "pythonw.exe"
     if not pythonw_exe.exists():
@@ -366,15 +372,18 @@ def main() -> None:
         if action.startswith("markdone-"):
             _handle_mark_done(action[len("markdone-") :])
         elif action == "choosetask":
-            # Launch scrape_tasks.py --choose in a visible console window
-            python_exe = Path(sys.executable)
-            # Use python.exe (not pythonw.exe) so the console is visible
-            console_python = python_exe.parent / "python.exe"
-            if not console_python.exists():
-                console_python = python_exe
-            script_path = SCRIPT_DIR / "scrape_tasks.py"
+            # Launch the PowerShell task picker in a visible console window so
+            # the user gets arrow-key navigation. -ExecutionPolicy Bypass
+            # ensures it runs even if the user has the default Restricted
+            # CurrentUser policy.
+            choose_ps1 = SCRIPT_DIR / "src" / "choose_task.ps1"
             subprocess.Popen(
-                [str(console_python), str(script_path), "--choose"],
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-File", str(choose_ps1),
+                ],
                 cwd=str(SCRIPT_DIR),
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
@@ -402,7 +411,7 @@ def main() -> None:
         _handle_mark_done(mark_date)
         return
 
-    headless = "--headless" in sys.argv
+    headless = "--head" not in sys.argv
 
     # Wait for internet connectivity (ethernet may not be plugged in yet)
     print("Waiting for internet...")
@@ -731,8 +740,8 @@ def main() -> None:
                 / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
             )
             startup_vbs = startup_dir / "launch_silentsheet.vbs"
-            project_vbs = SCRIPT_DIR / "silentsheet_launcher.vbs"
-            retry_vbs = SCRIPT_DIR / "silentsheet_retry.vbs"
+            project_vbs = RUNTIME_DIR / "silentsheet_launcher.vbs"
+            retry_vbs = RUNTIME_DIR / "silentsheet_retry.vbs"
 
             if startup_vbs.exists():
                 vbs_to_launch = startup_vbs

@@ -8,9 +8,11 @@ import tempfile
 from pathlib import Path
 
 STARTUP_DIR = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
-PROJECT_DIR = Path(__file__).resolve().parent
+# This file lives in src/, so PROJECT_DIR is the project root (one level up).
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+RUNTIME_DIR = PROJECT_DIR / "runtime"
 SHORTCUT_DEST = STARTUP_DIR / "launch_silentsheet.vbs"
-TASK_VBS_DEST = PROJECT_DIR / "silentsheet_launcher.vbs"
+TASK_VBS_DEST = RUNTIME_DIR / "silentsheet_launcher.vbs"
 SCHED_TASK_NAME = "SilentSheet"
 
 
@@ -117,6 +119,7 @@ def generate_task_xml() -> str:
 
 
 def install_logon() -> None:
+    RUNTIME_DIR.mkdir(exist_ok=True)
     TASK_VBS_DEST.write_text(generate_vbs())
     xml_content = generate_task_xml()
     tmp_path = Path(tempfile.gettempdir()) / "silentsheet_task.xml"

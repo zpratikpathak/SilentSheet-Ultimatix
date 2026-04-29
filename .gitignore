@@ -15,12 +15,8 @@ build/
 # User config (contains employee ID)
 config.toml
 
-# Runtime state
-.silentsheet_state.json
-silentsheet.log
-silentsheet_launcher.vbs
-silentsheet_retry.vbs
-silentsheet_markdone.vbs
+# Runtime state (state json, log, generated VBS launchers)
+runtime/
 
 # Per-incident diagnostic reports
 logs/

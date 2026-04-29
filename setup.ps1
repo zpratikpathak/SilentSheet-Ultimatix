@@ -314,6 +314,32 @@ if ($bootstrapMode) {
     # Step 5: Cleanup
     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
     Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+
+    # Step 6: One-shot migration from the pre-tidy layout (everything at root).
+    # If the user is upgrading from a version that kept generated state files
+    # at the project root, move them into runtime/ so the new code finds them.
+    $legacyRuntimeFiles = @(
+        '.silentsheet_state.json',
+        'silentsheet.log',
+        'silentsheet_launcher.vbs',
+        'silentsheet_markdone.vbs',
+        'silentsheet_retry.vbs'
+    )
+    $migrated = 0
+    $runtimeDir = Join-Path $projectRoot 'runtime'
+    foreach ($name in $legacyRuntimeFiles) {
+        $oldPath = Join-Path $projectRoot $name
+        if (Test-Path $oldPath -PathType Leaf) {
+            if (-not (Test-Path $runtimeDir)) {
+                New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+            }
+            Move-Item -LiteralPath $oldPath -Destination (Join-Path $runtimeDir $name) -Force -ErrorAction SilentlyContinue
+            $migrated++
+        }
+    }
+    if ($migrated -gt 0) {
+        Write-Host " [+] Migrated $migrated runtime file(s) into runtime\." -ForegroundColor Green
+    }
 }
 
 
@@ -570,13 +596,13 @@ if (-not $skipConfig) {
             $scrapeJob = Start-Job -ScriptBlock {
                 param($dir, $empId)
                 Set-Location $dir
-                uv run --no-sync python scrape_tasks.py $empId 2>&1 | Out-String
+                uv run --no-sync python src\scrape_tasks.py $empId 2>&1 | Out-String
             } -ArgumentList $PWD, $employeeId
         } else {
             $scrapeJob = Start-Job -ScriptBlock {
                 param($dir, $empId)
                 Set-Location $dir
-                & "$dir\.venv\Scripts\python.exe" scrape_tasks.py $empId 2>&1 | Out-String
+                & "$dir\.venv\Scripts\python.exe" src\scrape_tasks.py $empId 2>&1 | Out-String
             } -ArgumentList $PWD, $employeeId
         }
 
@@ -673,9 +699,9 @@ $autoRunLabel = "Disabled"
 function Invoke-SetupStartup {
     param([string]$Action)
     if ($UseUv) {
-        uv run --no-sync python setup_startup.py $Action | Out-Null
+        uv run --no-sync python src\setup_startup.py $Action | Out-Null
     } else {
-        .\.venv\Scripts\python.exe setup_startup.py $Action | Out-Null
+        .\.venv\Scripts\python.exe src\setup_startup.py $Action | Out-Null
     }
 }
 
