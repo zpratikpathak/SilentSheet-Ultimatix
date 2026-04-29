@@ -109,7 +109,7 @@ def check_for_update() -> None:
                     duration="long",
                 )
                 print(f"Update available: v{LOCAL_VERSION} -> v{remote_version}")
-                time.sleep(7)
+                time.sleep(25)
             return
         except Exception as e:
             last_err = e
