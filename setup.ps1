@@ -1,6 +1,7 @@
 param(
     [switch]$Update,
-    [switch]$Install
+    [switch]$Install,
+    [switch]$Silent
 )
 
 # Treat Install and Update as the same internal "bootstrap" mode (download
@@ -364,7 +365,7 @@ Invoke-LoadingAnimation -Message "Checking System PATH" -DurationSeconds 2
 if ($env:PATH -notlike "*$psDir*") {
     Write-Host " [!] PowerShell directory ($psDir) is not in your System PATH." -ForegroundColor Yellow
     Write-Host "     This is required for toast notifications." -ForegroundColor DarkGray
-    if (Select-YesNo "Add it to your User PATH?") {
+    if ($Silent -or (Select-YesNo "Add it to your User PATH?")) {
         $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
         if ($userPath -notlike "*$psDir*") {
             [Environment]::SetEnvironmentVariable("PATH", "$userPath;$psDir", "User")
@@ -421,7 +422,7 @@ if ($missing.Count -gt 0) {
         exit 1
     }
 
-    if (Select-YesNo "Would you like to install them using winget?") {
+    if ($Silent -or (Select-YesNo "Would you like to install them using winget?")) {
         foreach ($m in $missing) {
             Write-Host "`n Installing $($m.Name) (winget install $($m.WingetId))...." -ForegroundColor Cyan
             winget install --id $m.WingetId --accept-source-agreements --accept-package-agreements
@@ -475,6 +476,43 @@ if ($missing.Count -gt 0) {
 # ==========================================
 Write-Header "Environment & Dependencies"
 # ==========================================
+
+if ($Silent -and (Test-Path ".venv")) {
+    Write-Host " Removing old .venv for clean update..." -ForegroundColor Cyan
+
+    $venvRemoved = $false
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Remove-Item -Path ".venv" -Recurse -Force -ErrorAction Stop
+            $venvRemoved = $true
+            break
+        } catch {
+            # Files may be locked by VS Code or other editors. Rename the
+            # folder out of the way first (works even with open handles on
+            # most Windows file-systems), then delete the renamed copy.
+            $tmpName = ".venv_old_$([System.IO.Path]::GetRandomFileName())"
+            try {
+                Rename-Item -Path ".venv" -NewName $tmpName -Force -ErrorAction Stop
+                Remove-Item -Path $tmpName -Recurse -Force -ErrorAction SilentlyContinue
+                $venvRemoved = $true
+                break
+            } catch {
+                if ($attempt -lt 5) {
+                    Write-Host " [!] .venv is locked (attempt $attempt/5). Retrying in 3s..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 3
+                }
+            }
+        }
+    }
+
+    if (-not $venvRemoved -and (Test-Path ".venv")) {
+        Write-Host " [!] Could not fully remove .venv (files may be locked by another program)." -ForegroundColor Yellow
+        Write-Host "     Close any editors/terminals that have this folder open, then try again." -ForegroundColor DarkGray
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Write-Host " [+] Old .venv removed." -ForegroundColor Green
+}
 
 if ($UseUv) {
     Write-Host " Creating virtual environment with uv..." -ForegroundColor Cyan
@@ -559,7 +597,10 @@ try {
 Write-Header "Timesheet Configuration"
 # ==========================================
 
-if (Test-Path "config.toml") {
+if ($Silent) {
+    Write-Host "     Keeping existing config.toml (silent update)." -ForegroundColor DarkGray
+    $skipConfig = $true
+} elseif (Test-Path "config.toml") {
     Write-Host " [i] Existing config.toml found." -ForegroundColor Cyan
     if (-not (Select-YesNo "Overwrite existing configuration?" -Default 1)) {
         Write-Host "     Keeping existing config.toml." -ForegroundColor DarkGray
@@ -707,13 +748,35 @@ charge_type = "$chargeType"
 Write-Header "Automation & Auto-Run Settings"
 # ==========================================
 
-$autoRunOptions = @(
-    "Windows Startup (Recommended if you shut down daily)", 
-    "Windows Login   (Recommended if you close lid / sleep)", 
-    "Disable auto-run"
-)
-$autoRunChoice = Select-Option -Prompt "How should SilentSheet automatically start?" -Options $autoRunOptions
 $autoRunLabel = "Disabled"
+
+if ($Silent) {
+    $startupVbs = Join-Path ([Environment]::GetFolderPath("Startup")) "launch_silentsheet.vbs"
+    $hasStartup = Test-Path $startupVbs
+    $hasLogon = $false
+    try {
+        schtasks /query /tn "SilentSheet" 2>$null | Out-Null
+        $hasLogon = ($LASTEXITCODE -eq 0)
+    } catch { }
+
+    if ($hasStartup) {
+        $autoRunChoice = 0
+        Write-Host " [i] Detected existing auto-run: Windows Startup" -ForegroundColor Cyan
+    } elseif ($hasLogon) {
+        $autoRunChoice = 1
+        Write-Host " [i] Detected existing auto-run: Windows Login" -ForegroundColor Cyan
+    } else {
+        $autoRunChoice = 2
+        Write-Host " [i] No existing auto-run detected." -ForegroundColor Cyan
+    }
+} else {
+    $autoRunOptions = @(
+        "Windows Startup (Recommended if you shut down daily)", 
+        "Windows Login   (Recommended if you close lid / sleep)", 
+        "Disable auto-run"
+    )
+    $autoRunChoice = Select-Option -Prompt "How should SilentSheet automatically start?" -Options $autoRunOptions
+}
 
 function Invoke-SetupStartup {
     param([string]$Action)
@@ -748,7 +811,7 @@ switch ($autoRunChoice) {
     }
 }
 
-if (Select-YesNo "Launch SilentSheet now in the background?") {
+if ($Silent -or (Select-YesNo "Launch SilentSheet now in the background?")) {
     Invoke-LoadingAnimation -Message "Starting Background Process" -DurationSeconds 2
     if ($UseUv) {
         Start-Process -FilePath "uv" -ArgumentList "run", "--no-sync", "pythonw", "fill_timesheet.py", "--headless" -WindowStyle Hidden

@@ -344,8 +344,6 @@ def main() -> None:
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
         elif action == "update":
-            # Launch setup.ps1 -Update in a visible console window so the user
-            # can watch download/extract/setup progress.
             setup_ps1 = SCRIPT_DIR / "setup.ps1"
             subprocess.Popen(
                 [
@@ -354,6 +352,7 @@ def main() -> None:
                     "-ExecutionPolicy", "Bypass",
                     "-File", str(setup_ps1),
                     "-Update",
+                    "-Silent",
                 ],
                 cwd=str(SCRIPT_DIR),
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
