@@ -535,6 +535,25 @@ if ($UseUv) {
 }
 Write-Host " [+] Dependencies configured successfully." -ForegroundColor Green
 
+# Register AppUserModelId early so toast notifications display "SilentSheet"
+# during the task-scrape step below (and all subsequent runs).
+try {
+    $aumidPath = "HKCU:\Software\Classes\AppUserModelId\SilentSheet"
+    if (-not (Test-Path $aumidPath)) {
+        New-Item -Path $aumidPath -Force -ErrorAction Stop | Out-Null
+    }
+    $iconPath = "$PWD\favicon.ico"
+    Set-ItemProperty -Path $aumidPath -Name "DisplayName" -Value "SilentSheet" -ErrorAction Stop
+    Set-ItemProperty -Path $aumidPath -Name "IconUri" -Value $iconPath -ErrorAction Stop
+
+    $cachePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\SilentSheet"
+    if (Test-Path $cachePath) {
+        Remove-Item $cachePath -Recurse -Force -ErrorAction Stop | Out-Null
+    }
+} catch {
+    # Silently ignore
+}
+
 
 # ==========================================
 Write-Header "Timesheet Configuration"
@@ -727,24 +746,6 @@ switch ($autoRunChoice) {
         Invoke-SetupStartup "uninstall-all"
         $autoRunLabel = "Disabled"
     }
-}
-
-# Register AppUserModelId
-try {
-    $aumidPath = "HKCU:\Software\Classes\AppUserModelId\SilentSheet"
-    if (-not (Test-Path $aumidPath)) {
-        New-Item -Path $aumidPath -Force -ErrorAction Stop | Out-Null
-    }
-    $iconPath = "$PWD\favicon.ico"
-    Set-ItemProperty -Path $aumidPath -Name "DisplayName" -Value "SilentSheet" -ErrorAction Stop
-    Set-ItemProperty -Path $aumidPath -Name "IconUri" -Value $iconPath -ErrorAction Stop
-
-    $cachePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\SilentSheet"
-    if (Test-Path $cachePath) {
-        Remove-Item $cachePath -Recurse -Force -ErrorAction Stop | Out-Null
-    }
-} catch {
-    # Silently ignore
 }
 
 if (Select-YesNo "Launch SilentSheet now in the background?") {

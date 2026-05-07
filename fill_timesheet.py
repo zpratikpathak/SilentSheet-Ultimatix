@@ -29,7 +29,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
-from winotify import Notification
 
 import pratikpathak
 
@@ -41,6 +40,7 @@ RUNTIME_DIR.mkdir(exist_ok=True)
 sys.path.insert(0, str(SCRIPT_DIR / "src"))
 
 import error_logger  # noqa: E402
+from notification import notify, set_default_icon, dismiss, dismiss_all  # noqa: E402
 
 PROTOCOL_NAME = "silentsheet"
 
@@ -60,6 +60,7 @@ WAIT_TIMEOUT = 30  # seconds to wait for elements
 STATE_FILE = RUNTIME_DIR / ".silentsheet_state.json"
 CONFIG_FILE = SCRIPT_DIR / "config.toml"
 APP_ICON_FILE = SCRIPT_DIR / "favicon.ico"
+set_default_icon(APP_ICON_FILE)
 
 # Load config
 with open(CONFIG_FILE, "r", encoding="utf-8-sig") as f:
@@ -255,51 +256,6 @@ def create_auth_number_image(auth_number: str) -> Path:
     draw.text((x, y), text, fill=text_color, font=font)
     image.save(image_path)
     return image_path
-
-
-def _ico_to_png(ico_path: Path) -> Path:
-    """Convert an ICO file to PNG so toast notifications render it at full size."""
-    png_path = Path(tempfile.gettempdir()) / f"{ico_path.stem}.png"
-    if png_path.exists() and png_path.stat().st_mtime >= ico_path.stat().st_mtime:
-        return png_path
-    img = Image.open(ico_path)
-    largest = max(img.info.get("sizes", [(img.width, img.height)]))
-    img.size = largest
-    img = img.resize(largest, Image.LANCZOS)
-    img.save(png_path, format="PNG")
-    return png_path
-
-
-def notify(
-    title: str,
-    message: str,
-    image_path: Path | None = None,
-    launch: str | None = None,
-    duration: str = "long",
-    action_label: str | None = None,
-    action_launch: str | None = None,
-) -> None:
-    """Show a Windows toast notification. If *launch* is set, clicking it opens that URL."""
-    if APP_ICON_FILE.exists():
-        try:
-            icon = str(_ico_to_png(APP_ICON_FILE))
-        except Exception:
-            icon = str(APP_ICON_FILE.resolve())
-    elif image_path:
-        icon = str(image_path.resolve())
-    else:
-        icon = None
-    toast = Notification(
-        app_id="SilentSheet",
-        title=title,
-        msg=message,
-        duration=duration,
-        icon=icon,
-        launch=launch or "",
-    )
-    if action_label and action_launch:
-        toast.add_actions(label=action_label, launch=action_launch)
-    toast.show()
 
 
 def _register_protocol() -> None:
@@ -573,7 +529,7 @@ def main() -> None:
         _register_protocol()
         mark_done_launch = f"{PROTOCOL_NAME}:markdone-{date.today()}"
 
-        notify(
+        easyauth_toast = notify(
             f"EasyAuth: {auth_number}",
             "Tap this number on your Authenticator app to approve.",
             image_path=auth_image_path,
@@ -589,13 +545,14 @@ def main() -> None:
         last_notify_time = auth_start  # track when we last showed the notification
         while time.time() - auth_start < auth_timeout:
             if already_done_today():
+                dismiss(easyauth_toast)
                 print("Marked as done via notification button. Exiting.")
                 return
             if driver.current_url != auth_start_url:
                 break
             # Re-show the notification every 25 seconds if still waiting
             if time.time() - last_notify_time >= 25:
-                notify(
+                easyauth_toast = notify(
                     f"EasyAuth: {auth_number}",
                     "Tap this number on your Authenticator app to approve.",
                     image_path=auth_image_path,
@@ -605,18 +562,26 @@ def main() -> None:
                 last_notify_time = time.time()
             time.sleep(1)
         else:
+            dismiss(easyauth_toast)
             raise TimeoutError("EasyAuth request timed out waiting for approval.")
 
         # Check if we landed on the timeout error page
         try:
             timeout_div = driver.find_elements(By.ID, "timeout")
             if timeout_div and timeout_div[0].is_displayed():
+                dismiss(easyauth_toast)
                 raise TimeoutError("EasyAuth request timed out.")
         except Exception as e:
             if isinstance(e, TimeoutError):
                 raise
             pass
 
+        dismiss(easyauth_toast)
+        approved_toast = notify(
+            "EasyAuth Approved",
+            "Authentication successful! Filling timesheet...",
+            duration="short",
+        )
         print("Authentication successful! Redirected to:", driver.current_url)
 
         # Step 7: Wait for the timesheet page to load and fill effort hours
@@ -658,6 +623,7 @@ def main() -> None:
         except Exception:
             # Task not found — notify user and offer interactive task chooser
             print(f"Task '{TASK_NAME}' / '{CHARGE_TYPE}' not found on the timesheet.")
+            dismiss(approved_toast)
             _register_protocol()
             choose_launch = f"{PROTOCOL_NAME}:choosetask"
             notify(
@@ -677,6 +643,7 @@ def main() -> None:
             print("Effort already set to 9 hours. Skipping.")
             mark_done_today()
             mark_notified_today()
+            dismiss(approved_toast)
             notify(
                 "Timesheet", "Already had 9 hours. Marked as done.", duration="short"
             )
@@ -702,6 +669,7 @@ def main() -> None:
             driver.refresh()
             verified_input = wait.until(find_task_effort_input)
             verified_value = verified_input.get_attribute("value").strip()
+            dismiss(approved_toast)
             if verified_value == "9":
                 print("Verification passed: 9 hours confirmed.")
                 mark_done_today()

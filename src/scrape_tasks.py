@@ -24,7 +24,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import TimeoutException
-from winotify import Notification
+from notification import notify, set_default_icon, dismiss
 
 try:
     import winreg
@@ -38,6 +38,7 @@ WAIT_TIMEOUT = 30
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
 APP_ICON_FILE = PROJECT_DIR / "favicon.ico"
+set_default_icon(APP_ICON_FILE)
 
 CHARGE_TYPE_COLUMNS = {
     "Billable": 2,
@@ -111,38 +112,6 @@ def create_auth_number_image(auth_number: str) -> Path:
     draw.text((x, y), text, fill=text_color, font=font)
     image.save(image_path)
     return image_path
-
-
-def _ico_to_png(ico_path: Path) -> Path:
-    png_path = Path(tempfile.gettempdir()) / f"{ico_path.stem}.png"
-    if png_path.exists() and png_path.stat().st_mtime >= ico_path.stat().st_mtime:
-        return png_path
-    img = Image.open(ico_path)
-    largest = max(img.info.get("sizes", [(img.width, img.height)]))
-    img.size = largest
-    img = img.resize(largest, Image.LANCZOS)
-    img.save(png_path, format="PNG")
-    return png_path
-
-
-def notify(title: str, message: str, image_path: Path | None = None) -> None:
-    if APP_ICON_FILE.exists():
-        try:
-            icon = str(_ico_to_png(APP_ICON_FILE))
-        except Exception:
-            icon = str(APP_ICON_FILE.resolve())
-    elif image_path:
-        icon = str(image_path.resolve())
-    else:
-        icon = None
-    toast = Notification(
-        app_id="SilentSheet",
-        title=title,
-        msg=message,
-        duration="long",
-        icon=icon,
-    )
-    toast.show()
 
 
 def _update_config(task_name: str, charge_type: str) -> None:
@@ -324,7 +293,7 @@ def main() -> None:
             auth_image = create_auth_number_image(auth_number)
         except Exception:
             pass
-        notify(
+        easyauth_toast = notify(
             f"EasyAuth: {auth_number}",
             "Tap this number on your Authenticator app to approve.",
             image_path=auth_image,
@@ -341,7 +310,7 @@ def main() -> None:
                 break
             # Re-show notification every 25 seconds
             if time.time() - last_notify_time >= 25:
-                notify(
+                easyauth_toast = notify(
                     f"EasyAuth: {auth_number}",
                     "Tap this number on your Authenticator app to approve.",
                     image_path=auth_image,
@@ -349,6 +318,7 @@ def main() -> None:
                 last_notify_time = time.time()
             time.sleep(1)
         else:
+            dismiss(easyauth_toast)
             print("EasyAuth timed out.", file=sys.stderr)
             error_logger.write_report(
                 "Waiting for EasyAuth approval (task list)", driver=driver
@@ -361,6 +331,7 @@ def main() -> None:
         try:
             timeout_div = driver.find_elements(By.ID, "timeout")
             if timeout_div and timeout_div[0].is_displayed():
+                dismiss(easyauth_toast)
                 print("EasyAuth timed out on server side.", file=sys.stderr)
                 error_logger.write_report(
                     "Waiting for EasyAuth approval (task list)", driver=driver
@@ -371,6 +342,7 @@ def main() -> None:
         except Exception:
             pass
 
+        dismiss(easyauth_toast)
         print("Authentication successful!")
 
         # Step 6: Scrape available tasks
