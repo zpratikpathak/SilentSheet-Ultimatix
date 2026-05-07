@@ -1,6 +1,6 @@
 [project]
 name = "silentsheet"
-version = "3.8.6"
+version = "3.9.2"
 description = "Automate Ultimatix timesheet login via EasyAuth"
 readme = "README.md"
 requires-python = ">=3.12"

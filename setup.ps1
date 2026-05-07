@@ -294,17 +294,64 @@ if ($bootstrapMode) {
     }
     Write-Host " [+] Update package extracted." -ForegroundColor Green
 
-    # Step 4: Copy contents over the project root (overwrite). User-state files
-    # (config.toml, .silentsheet_state.json, .venv\, *.log, *.vbs) are gitignored
-    # and therefore not in the zip, so they are preserved automatically.
+    # Step 4: Backup current project before modifying anything.
+    $backupDir = Join-Path $projectRoot "backup"
+    $backupZip = Join-Path $backupDir "silentsheet_backup.zip"
+    $preserveNames = @('config.toml', 'runtime', 'logs', '.venv', 'backup', '.vscode', '.idea')
+    try {
+        if (-not (Test-Path $backupDir)) {
+            New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+        }
+        if (Test-Path $backupZip) {
+            Remove-Item $backupZip -Force -ErrorAction Stop
+        }
+        Write-Host " Creating backup of current version..." -ForegroundColor Cyan
+        $itemsToBackup = Get-ChildItem -Path $projectRoot -Force | Where-Object {
+            $preserveNames -notcontains $_.Name
+        }
+        if ($itemsToBackup.Count -gt 0) {
+            $backupStaging = Join-Path $env:TEMP "silentsheet_backup_staging"
+            if (Test-Path $backupStaging) { Remove-Item $backupStaging -Recurse -Force }
+            New-Item -ItemType Directory -Path $backupStaging -Force | Out-Null
+            foreach ($item in $itemsToBackup) {
+                Copy-Item -Path $item.FullName -Destination $backupStaging -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Compress-Archive -Path (Join-Path $backupStaging "*") -DestinationPath $backupZip -Force -ErrorAction Stop
+            Remove-Item $backupStaging -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host " [+] Backup saved to backup\silentsheet_backup.zip" -ForegroundColor Green
+        } else {
+            Write-Host " [i] Nothing to back up (fresh install)." -ForegroundColor DarkGray
+        }
+    } catch {
+        Write-Host " [!] Backup failed: $_. Continuing anyway." -ForegroundColor Yellow
+    }
+
+    # Step 5: Clean-delete old project files (preserve user-state), then move new files in.
     Write-Host " Applying update files..." -ForegroundColor Cyan
     try {
+        $itemsToDelete = Get-ChildItem -Path $projectRoot -Force | Where-Object {
+            $preserveNames -notcontains $_.Name
+        }
+        foreach ($item in $itemsToDelete) {
+            Remove-Item -Path $item.FullName -Recurse -Force -ErrorAction Stop
+        }
         Copy-Item -Path (Join-Path $extractedRoot.FullName "*") -Destination $projectRoot -Recurse -Force -ErrorAction Stop
     } catch {
         Write-ErrorReport -Context "Applying update files" `
-            -Message "Failed to copy the new files over the project root." `
+            -Message "Failed to apply the update to the project root." `
             -Details "$_"
-        Write-Host " [X] Couldn't apply the update. See logs folder for details." -ForegroundColor Red
+        Write-Host " [X] Update failed. Attempting to restore from backup..." -ForegroundColor Red
+        if (Test-Path $backupZip) {
+            try {
+                Expand-Archive -Path $backupZip -DestinationPath $projectRoot -Force -ErrorAction Stop
+                Write-Host " [+] Restored from backup successfully." -ForegroundColor Green
+            } catch {
+                Write-Host " [X] Restore also failed: $_" -ForegroundColor Red
+                Write-Host "     Your backup is at: $backupZip" -ForegroundColor DarkGray
+            }
+        } else {
+            Write-Host " [!] No backup zip found to restore from." -ForegroundColor Yellow
+        }
         Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
         Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
         Read-Host "Press Enter to exit"
@@ -312,11 +359,11 @@ if ($bootstrapMode) {
     }
     Write-Host " [+] Files updated successfully." -ForegroundColor Green
 
-    # Step 5: Cleanup
+    # Step 6: Cleanup
     Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
     Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
-    # Step 6: One-shot migration from the pre-tidy layout (everything at root).
+    # Step 7: One-shot migration from the pre-tidy layout (everything at root).
     # If the user is upgrading from a version that kept generated state files
     # at the project root, move them into runtime/ so the new code finds them.
     $legacyRuntimeFiles = @(

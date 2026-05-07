@@ -21,6 +21,9 @@ runtime/
 # Per-incident diagnostic reports
 logs/
 
+# Update backups
+backup/
+
 # IDE
 .vscode/
 .idea/
