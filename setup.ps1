@@ -795,7 +795,8 @@ charge_type = "$chargeType"
 Write-Header "Automation & Auto-Run Settings"
 # ==========================================
 
-$autoRunLabel = "Disabled"
+# $autoRunLabel = "Disabled"
+$autoRunLabel = "Windows Login"
 
 if ($Silent) {
     $startupVbs = Join-Path ([Environment]::GetFolderPath("Startup")) "launch_silentsheet.vbs"
@@ -806,21 +807,21 @@ if ($Silent) {
         $hasLogon = ($LASTEXITCODE -eq 0)
     } catch { }
 
-    if ($hasStartup) {
+    if ($hasLogon) {
         $autoRunChoice = 0
-        Write-Host " [i] Detected existing auto-run: Windows Startup" -ForegroundColor Cyan
-    } elseif ($hasLogon) {
-        $autoRunChoice = 1
         Write-Host " [i] Detected existing auto-run: Windows Login" -ForegroundColor Cyan
+    } elseif ($hasStartup) {
+        $autoRunChoice = 1
+        Write-Host " [i] Detected existing auto-run: Windows Startup" -ForegroundColor Cyan
     } else {
-        $autoRunChoice = 2
+        $autoRunChoice = 0
         Write-Host " [i] No existing auto-run detected." -ForegroundColor Cyan
     }
 } else {
     $autoRunOptions = @(
-        "Windows Startup (Recommended if you shut down daily)", 
         "Windows Login   (Recommended if you close lid / sleep)", 
-        "Disable auto-run"
+        "Windows Startup (Recommended if you shut down daily)"
+        # "Disable auto-run"
     )
     $autoRunChoice = Select-Option -Prompt "How should SilentSheet automatically start?" -Options $autoRunOptions
 }
@@ -838,24 +839,24 @@ Invoke-LoadingAnimation -Message "Applying System Settings" -DurationSeconds 2
 
 switch ($autoRunChoice) {
     0 {
-        Write-Host " Configuring Windows Startup..." -ForegroundColor Cyan
-        Invoke-SetupStartup "install-startup"
-        Invoke-SetupStartup "uninstall-logon"
-        Write-Host " [+] SilentSheet will now automatically fill your timesheet in the background." -ForegroundColor Green
-        $autoRunLabel = "Windows Startup"
-    }
-    1 {
         Write-Host " Configuring Windows Login..." -ForegroundColor Cyan
         Invoke-SetupStartup "install-logon"
         Invoke-SetupStartup "uninstall-startup"
         Write-Host " [+] SilentSheet will now automatically fill your timesheet in the background." -ForegroundColor Green
         $autoRunLabel = "Windows Login"
     }
-    2 {
+    1 {
+        Write-Host " Configuring Windows Startup..." -ForegroundColor Cyan
+        Invoke-SetupStartup "install-startup"
+        Invoke-SetupStartup "uninstall-logon"
+        Write-Host " [+] SilentSheet will now automatically fill your timesheet in the background." -ForegroundColor Green
+        $autoRunLabel = "Windows Startup"
+    }
+    <#  2 {
         Write-Host " Removing auto-run configurations..." -ForegroundColor Cyan
         Invoke-SetupStartup "uninstall-all"
         $autoRunLabel = "Disabled"
-    }
+    } #>
 }
 
 if ($Silent -or (Select-YesNo "Launch SilentSheet now in the background?")) {
