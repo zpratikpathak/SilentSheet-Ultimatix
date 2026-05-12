@@ -9,6 +9,9 @@ build/
 # Virtual environment
 .venv/
 
+# Embedded Python (downloaded at setup time when system Python is absent)
+python/
+
 # uv
 .python-version
 

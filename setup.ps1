@@ -297,7 +297,7 @@ if ($bootstrapMode) {
     # Step 4: Backup current project before modifying anything.
     $backupDir = Join-Path $projectRoot "backup"
     $backupZip = Join-Path $backupDir "silentsheet_backup.zip"
-    $preserveNames = @('config.toml', 'runtime', 'logs', '.venv', 'backup', '.vscode', '.idea')
+    $preserveNames = @('config.toml', 'runtime', 'logs', '.venv', 'python', 'backup', '.vscode', '.idea')
     try {
         if (-not (Test-Path $backupDir)) {
             New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
@@ -397,13 +397,125 @@ Write-Header "Checking System Prerequisites"
 
 $missing = @()
 
-# Check for Python
+# --- Python resolution (system > embedded > auto-download) ---
+$EmbeddedPythonDir = Join-Path $PWD.Path "python"
+$EmbeddedPython    = Join-Path $EmbeddedPythonDir "python.exe"
+$UseEmbeddedPython = $false
+
 Invoke-LoadingAnimation -Message "Locating Python" -DurationSeconds 2
+$systemPythonOk = $false
 if (Get-Command "python" -ErrorAction SilentlyContinue) {
-    Write-Host " [+] Python is installed." -ForegroundColor Green
+    $pyVerRaw = (python --version 2>&1) -replace '[^0-9.]', ''
+    $pyVerParts = $pyVerRaw -split '\.'
+    $pyMajor = [int]$pyVerParts[0]
+    $pyMinor = [int]$pyVerParts[1]
+    if ($pyMajor -eq 3 -and $pyMinor -ge 11 -and $pyMinor -le 14) {
+        Write-Host " [+] Python $pyVerRaw is installed (system)." -ForegroundColor Green
+        $systemPythonOk = $true
+    } else {
+        Write-Host " [!] System Python $pyVerRaw is outside supported range (3.11-3.14)." -ForegroundColor Yellow
+    }
+}
+
+if ($systemPythonOk) {
+    # System Python is good, nothing else to do
+} elseif (Test-Path $EmbeddedPython) {
+    Write-Host " [+] Embedded Python found at $EmbeddedPythonDir." -ForegroundColor Green
+    $UseEmbeddedPython = $true
 } else {
-    Write-Host " [X] Python is NOT installed." -ForegroundColor Red
-    $missing += @{ Name = "Python"; WingetId = "Python.Python.3.13" }
+    if (Get-Command "python" -ErrorAction SilentlyContinue) {
+        Write-Host " [!] Falling back to embedded Python..." -ForegroundColor Yellow
+    } else {
+        Write-Host " [!] Python is not installed. Setting up embedded Python..." -ForegroundColor Yellow
+    }
+
+    $arch = $env:PROCESSOR_ARCHITECTURE
+    $pyVersion = "3.12.10"
+    $pyZipUrl = switch ($arch) {
+        "AMD64" { "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-amd64.zip" }
+        "x86"   { "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-win32.zip" }
+        "ARM64" { "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-arm64.zip" }
+        default { $null }
+    }
+
+    if (-not $pyZipUrl) {
+        Write-ErrorReport -Context "Python setup" `
+            -Message "Unsupported CPU architecture: $arch" `
+            -Details "Only AMD64, x86, and ARM64 are supported."
+        Write-Host " [X] Unsupported architecture: $arch." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "     Please install Python (3.11-3.14) manually from https://www.python.org/downloads/" -ForegroundColor Yellow
+        Write-Host "     Then re-run setup:" -ForegroundColor Yellow
+        Write-Host "       powershell -ExecutionPolicy Bypass -File `"$PWD\setup.ps1`"" -ForegroundColor Cyan
+        Write-Host ""
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    $pyTmpZip = Join-Path $env:TEMP "python_full.zip"
+    Write-Host " Downloading Python $pyVersion ($arch)..." -ForegroundColor Cyan
+
+    $pyDownloadJob = Start-Job -ScriptBlock {
+        param($url, $out)
+        try {
+            $ProgressPreference = 'SilentlyContinue'
+            Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing -ErrorAction Stop
+            return @{ Success = $true; Error = $null }
+        } catch {
+            return @{ Success = $false; Error = $_.Exception.Message }
+        }
+    } -ArgumentList $pyZipUrl, $pyTmpZip
+
+    [System.Console]::CursorVisible = $false
+    $spinner = @('-', '\', '|', '/')
+    $spinIdx = 0
+    while ($pyDownloadJob.State -eq 'Running') {
+        Write-Host "`r  [$($spinner[$spinIdx % 4])] Downloading Python..." -NoNewline -ForegroundColor Cyan
+        $spinIdx++
+        Start-Sleep -Milliseconds 100
+    }
+    Write-Host "`r                                                            `r" -NoNewline
+    [System.Console]::CursorVisible = $true
+
+    $pyDownloadResult = Receive-Job -Job $pyDownloadJob
+    Remove-Job -Job $pyDownloadJob
+
+    if (-not $pyDownloadResult.Success -or -not (Test-Path $pyTmpZip)) {
+        Write-ErrorReport -Context "Downloading Python" `
+            -Message "Failed to download the Python package." `
+            -Details $pyDownloadResult.Error
+        Write-Host " [X] Couldn't download Python automatically." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "     Please install Python (3.11-3.14) manually from https://www.python.org/downloads/" -ForegroundColor Yellow
+        Write-Host "     Then re-run setup:" -ForegroundColor Yellow
+        Write-Host "       powershell -ExecutionPolicy Bypass -File `"$PWD\setup.ps1`"" -ForegroundColor Cyan
+        Write-Host ""
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    Write-Host " Extracting Python to $EmbeddedPythonDir..." -ForegroundColor Cyan
+    try {
+        if (Test-Path $EmbeddedPythonDir) { Remove-Item $EmbeddedPythonDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $EmbeddedPythonDir -Force | Out-Null
+        Expand-Archive -Path $pyTmpZip -DestinationPath $EmbeddedPythonDir -Force -ErrorAction Stop
+    } catch {
+        Write-ErrorReport -Context "Extracting Python" `
+            -Message "Failed to extract the Python package." `
+            -Details "$_"
+        Write-Host " [X] Couldn't extract Python." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "     Please install Python (3.11-3.14) manually from https://www.python.org/downloads/" -ForegroundColor Yellow
+        Write-Host "     Then re-run setup:" -ForegroundColor Yellow
+        Write-Host "       powershell -ExecutionPolicy Bypass -File `"$PWD\setup.ps1`"" -ForegroundColor Cyan
+        Write-Host ""
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+    Remove-Item $pyTmpZip -Force -ErrorAction SilentlyContinue
+
+    Write-Host " [+] Python $pyVersion is ready." -ForegroundColor Green
+    $UseEmbeddedPython = $true
 }
 
 # Check for PowerShell (Windows PowerShell) in PATH
@@ -484,16 +596,6 @@ if ($missing.Count -gt 0) {
         $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
         $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
         $env:PATH = "$machinePath;$userPath"
-
-        # Re-check critical prerequisites after installation
-        if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
-            Write-ErrorReport -Context "Verifying Python after install" `
-                -Message "Python was installed via winget but is still not on PATH." `
-                -Details "User likely needs to restart the terminal or add Python to PATH manually."
-            Write-Host "`n [X] Python is still not found in PATH after installation." -ForegroundColor Red
-            Write-Host "     Please restart your terminal or add Python to PATH manually, then re-run this script." -ForegroundColor DarkGray
-            exit 1
-        }
 
         $chromeFound = $false
         foreach ($p in $chromePaths) {
@@ -590,8 +692,26 @@ if ($UseUv) {
         }
     }
 } else {
-    Write-Host " Creating virtual environment with python -m venv..." -ForegroundColor Cyan
-    python -m venv .venv
+    if ($UseEmbeddedPython) {
+        Write-Host " Creating virtual environment with local Python..." -ForegroundColor Cyan
+        & $EmbeddedPython -m venv .venv
+        if ($LASTEXITCODE -ne 0) {
+            Write-ErrorReport -Context "Creating virtual environment" `
+                -Message "python -m venv failed from local Python." `
+                -Details "Exit code: $LASTEXITCODE"
+            Write-Host " [X] Failed to create virtual environment." -ForegroundColor Red
+            Write-Host ""
+            Write-Host "     Please install Python (3.11-3.14) manually from https://www.python.org/downloads/" -ForegroundColor Yellow
+            Write-Host "     Then re-run setup:" -ForegroundColor Yellow
+            Write-Host "       powershell -ExecutionPolicy Bypass -File `"$PWD\setup.ps1`"" -ForegroundColor Cyan
+            Write-Host ""
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    } else {
+        Write-Host " Creating virtual environment with python -m venv..." -ForegroundColor Cyan
+        python -m venv .venv
+    }
     if (Test-Path "packages") {
         Write-Host " Installing dependencies from local packages with pip..." -ForegroundColor Cyan
         .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt | Out-Null
