@@ -62,12 +62,6 @@ if (Test-Path ".venv") {
     Write-Host "[x] Removed .venv/"
 }
 
-# Remove embedded Python (downloaded by setup.ps1 when system Python was absent)
-if (Test-Path "python") {
-    Remove-Item "python" -Recurse -Force
-    Write-Host "[x] Removed python/ (embedded)"
-}
-
 # Remove AppUserModelId registry key
 $aumidPath = "HKCU:\Software\Classes\AppUserModelId\SilentSheet"
 if (Test-Path $aumidPath) {
