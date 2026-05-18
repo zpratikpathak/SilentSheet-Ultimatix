@@ -398,8 +398,18 @@ Write-Header "Checking System Prerequisites"
 $missing = @()
 
 # Check for Python
+# Note: Get-Command alone is not reliable on Windows because the Microsoft
+# Store "App Execution Alias" stubs resolve as valid commands even when
+# Python is not actually installed.  We therefore verify with --version.
 Invoke-LoadingAnimation -Message "Locating Python" -DurationSeconds 2
+$pythonOk = $false
 if (Get-Command "python" -ErrorAction SilentlyContinue) {
+    try {
+        $null = python --version 2>&1
+        if ($LASTEXITCODE -eq 0) { $pythonOk = $true }
+    } catch { }
+}
+if ($pythonOk) {
     Write-Host " [+] Python is installed." -ForegroundColor Green
 } else {
     Write-Host " [X] Python is NOT installed." -ForegroundColor Red
@@ -486,7 +496,14 @@ if ($missing.Count -gt 0) {
         $env:PATH = "$machinePath;$userPath"
 
         # Re-check critical prerequisites after installation
-        if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
+        $pythonOk = $false
+        if (Get-Command "python" -ErrorAction SilentlyContinue) {
+            try {
+                $null = python --version 2>&1
+                if ($LASTEXITCODE -eq 0) { $pythonOk = $true }
+            } catch { }
+        }
+        if (-not $pythonOk) {
             Write-ErrorReport -Context "Verifying Python after install" `
                 -Message "Python was installed via winget but is still not on PATH." `
                 -Details "User likely needs to restart the terminal or add Python to PATH manually."
