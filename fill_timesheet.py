@@ -339,8 +339,10 @@ def main() -> None:
                 [
                     "powershell.exe",
                     "-NoProfile",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", str(choose_ps1),
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(choose_ps1),
                 ],
                 cwd=str(SCRIPT_DIR),
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
@@ -351,8 +353,10 @@ def main() -> None:
                 [
                     "powershell.exe",
                     "-NoProfile",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", str(setup_ps1),
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(setup_ps1),
                     "-Update",
                     "-Silent",
                 ],
@@ -480,9 +484,7 @@ def main() -> None:
                     driver.current_url,
                     driver.title,
                 )
-                error_logger.write_report(
-                    "Loading login page", driver=driver
-                )
+                error_logger.write_report("Loading login page", driver=driver)
                 raise
 
         # Step 3: Type the employee ID
@@ -700,9 +702,7 @@ def main() -> None:
         print(f"Error: {e}", file=sys.stderr)
 
         if isinstance(e, TimeoutError) and "timed out" in str(e).lower():
-            error_logger.write_report(
-                "EasyAuth approval", exc=e, driver=driver
-            )
+            error_logger.write_report("EasyAuth approval", exc=e, driver=driver)
 
             startup_dir = (
                 Path.home()
@@ -734,9 +734,7 @@ def main() -> None:
                 action_launch=f"file:///{vbs_to_launch.as_posix()}",
             )
         else:
-            error_logger.write_report(
-                "Filling timesheet", exc=e, driver=driver
-            )
+            error_logger.write_report("Filling timesheet", exc=e, driver=driver)
             notify(
                 "SilentSheet",
                 "Something went wrong while filling your timesheet. "
