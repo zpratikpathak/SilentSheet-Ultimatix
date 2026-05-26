@@ -368,7 +368,6 @@ if ($bootstrapMode) {
     # at the project root, move them into runtime/ so the new code finds them.
     $legacyRuntimeFiles = @(
         '.silentsheet_state.json',
-        'silentsheet.log',
         'silentsheet_launcher.vbs',
         'silentsheet_markdone.vbs',
         'silentsheet_retry.vbs'

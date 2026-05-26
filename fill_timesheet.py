@@ -37,6 +37,8 @@ import pratikpathak
 SCRIPT_DIR = Path(__file__).resolve().parent
 RUNTIME_DIR = SCRIPT_DIR / "runtime"
 RUNTIME_DIR.mkdir(exist_ok=True)
+LOGS_DIR = SCRIPT_DIR / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
 sys.path.insert(0, str(SCRIPT_DIR / "src"))
 
 import error_logger  # noqa: E402
@@ -78,7 +80,7 @@ GITHUB_PYPROJECT_URL = (
     "zpratikpathak/SilentSheet-Ultimatix/home/pyproject.toml"
 )
 
-LOG_FILE = RUNTIME_DIR / "silentsheet.log"
+LOG_FILE = LOGS_DIR / "silentsheet.log"
 logger = logging.getLogger("silentsheet")
 logger.setLevel(logging.ERROR)
 _file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")

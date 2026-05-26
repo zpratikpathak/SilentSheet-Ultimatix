@@ -36,12 +36,13 @@ if (Test-Path $startupVbs) {
 }
 schtasks /delete /tn "SilentSheet" /f 2>$null | Out-Null
 
-# Remove generated files and the runtime/ folder.
+# Remove generated files and the runtime/ and logs/ folders.
 # Includes legacy root-level paths (from before the tidy-root refactor) so a
 # single uninstall cleans up both old and new layouts.
 $filesToRemove = @(
     "config.toml",
     "runtime",
+    "logs",
     ".silentsheet_state.json",
     ".timesheet_done",
     "silentsheet.log",
