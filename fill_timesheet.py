@@ -57,6 +57,7 @@ if "--mark-done-today" not in sys.argv and not _is_protocol_launch():
     pratikpathak.main()
 
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
+PORTAL_URL = "https://www.ultimatix.net/uxportal/uxportalhome.html/Megamenu"
 WAIT_TIMEOUT = 30  # seconds to wait for elements
 
 STATE_FILE = RUNTIME_DIR / ".silentsheet_state.json"
@@ -406,16 +407,43 @@ def main() -> None:
     else:
         chrome_options.add_argument("--start-maximized")
 
+    # Hide automation indicators to avoid bot detection
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
     driver = webdriver.Chrome(options=chrome_options)
+
+    # Override the user-agent so headless Chrome does not expose "HeadlessChrome",
+    # which Ultimatix detects and rejects with a "network fluctuations" error
+    # right after EasyAuth approval. Derive it from the real UA to stay in sync
+    # with the installed Chrome version.
+    try:
+        real_ua = driver.execute_script("return navigator.userAgent")
+        clean_ua = real_ua.replace("HeadlessChrome", "Chrome")
+        driver.execute_cdp_cmd(
+            "Network.setUserAgentOverride", {"userAgent": clean_ua}
+        )
+    except Exception as ua_err:
+        logger.error("Could not override user-agent: %s", ua_err)
+
+    # Remove navigator.webdriver flag
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
+    )
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
 
     try:
-        # Step 1: Open the timesheet URL (retry on transient network errors)
-        print(f"Opening {TIMESHEET_URL} ...")
+        # Step 1: Open the Ultimatix portal home (retry on transient network
+        # errors). Authenticating against the portal first, then navigating to
+        # the timesheet, mirrors normal user behaviour and avoids the
+        # post-EasyAuth "network fluctuations" rejection.
+        print(f"Opening {PORTAL_URL} ...")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
-                driver.get(TIMESHEET_URL)
+                driver.get(PORTAL_URL)
                 break
             except Exception as nav_err:
                 err_msg = str(nav_err)
@@ -568,6 +596,10 @@ def main() -> None:
             dismiss(easyauth_toast)
             raise TimeoutError("EasyAuth request timed out waiting for approval.")
 
+        # Give the post-approval SAML redirect chain time to settle before
+        # inspecting the page or navigating onward.
+        time.sleep(5)
+
         # Check if we landed on the timeout error page
         try:
             timeout_div = driver.find_elements(By.ID, "timeout")
@@ -586,6 +618,74 @@ def main() -> None:
             duration="short",
         )
         print("Authentication successful! Redirected to:", driver.current_url)
+
+        # Now that the portal session is established, navigate to the timesheet.
+        # The timesheet backend occasionally returns a transient error page
+        # (WebLogic bridge failure, ERR_NETWORK_CHANGED, etc.) instead of the
+        # actual app. Detect those and retry rather than mistaking them for a
+        # missing task.
+        def is_timesheet_error_page() -> bool:
+            haystack = f"{driver.title}\n{driver.page_source[:3000]}".lower()
+            markers = (
+                "weblogic bridge message",
+                "failure of web server bridge",
+                "no backend server available",
+                "your connection was interrupted",
+                "a network change was detected",
+                "err_network_changed",
+                "err_connection",
+                "err_timed_out",
+                "err_empty_response",
+                "502",
+                "503",
+                "504",
+                "bad gateway",
+                "service unavailable",
+                "gateway time-out",
+            )
+            return any(marker in haystack for marker in markers)
+
+        timesheet_load_retries = 5
+        for ts_attempt in range(1, timesheet_load_retries + 1):
+            print(
+                f"Opening timesheet at {TIMESHEET_URL} "
+                f"(attempt {ts_attempt}/{timesheet_load_retries}) ..."
+            )
+            try:
+                driver.get(TIMESHEET_URL)
+            except Exception as nav_err:
+                print(f"Timesheet navigation error: {str(nav_err).splitlines()[0]}")
+            time.sleep(3)
+
+            if not is_timesheet_error_page():
+                break
+
+            print("Timesheet returned a transient error page.")
+            if ts_attempt < timesheet_load_retries:
+                dismiss(approved_toast)
+                approved_toast = notify(
+                    "Timesheet",
+                    "The timesheet didn't load properly. Trying again...",
+                    duration="short",
+                )
+                time.sleep(5 * ts_attempt)
+            else:
+                logger.error(
+                    "Timesheet failed to load after %d attempts. URL=%s, title=%s",
+                    timesheet_load_retries,
+                    driver.current_url,
+                    driver.title,
+                )
+                error_logger.write_report("Loading timesheet page", driver=driver)
+                dismiss(approved_toast)
+                notify(
+                    "SilentSheet",
+                    "The timesheet page wouldn't load after several tries. "
+                    "Please try again later.",
+                    duration="short",
+                )
+                driver.quit()
+                return
 
         # Step 7: Wait for the timesheet page to load and fill effort hours
         print("Waiting for timesheet page to load...")
@@ -624,6 +724,24 @@ def main() -> None:
         try:
             effort_input = wait.until(find_task_effort_input)
         except Exception:
+            # If a transient error page rendered after our initial check, treat
+            # it as a load failure rather than a missing task.
+            if is_timesheet_error_page():
+                logger.error(
+                    "Timesheet error page detected while looking for task. URL=%s, title=%s",
+                    driver.current_url,
+                    driver.title,
+                )
+                error_logger.write_report("Loading timesheet page", driver=driver)
+                dismiss(approved_toast)
+                notify(
+                    "SilentSheet",
+                    "The timesheet didn't load properly. Please try again later.",
+                    duration="short",
+                )
+                driver.quit()
+                return
+
             # Task not found — notify user and offer interactive task chooser
             print(f"Task '{TASK_NAME}' / '{CHARGE_TYPE}' not found on the timesheet.")
             dismiss(approved_toast)
