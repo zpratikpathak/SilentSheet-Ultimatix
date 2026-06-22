@@ -34,6 +34,7 @@ except ImportError:
 import error_logger
 
 TIMESHEET_URL = "https://timesheet.ultimatix.net/timesheet/"
+PORTAL_URL = "https://www.ultimatix.net/uxportal/uxportalhome.html/Megamenu"
 WAIT_TIMEOUT = 30
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = SCRIPT_DIR.parent
@@ -50,6 +51,31 @@ CHARGE_TYPE_COLUMNS = {
     "Evening Shift": 8,
     "On Call": 9,
 }
+
+
+def is_timesheet_error_page(driver) -> bool:
+    """Return True if the current page is a transient backend/network error page
+    (WebLogic bridge failure, ERR_NETWORK_CHANGED, gateway errors, etc.) rather
+    than the actual timesheet app."""
+    haystack = f"{driver.title}\n{driver.page_source[:3000]}".lower()
+    markers = (
+        "weblogic bridge message",
+        "failure of web server bridge",
+        "no backend server available",
+        "your connection was interrupted",
+        "a network change was detected",
+        "err_network_changed",
+        "err_connection",
+        "err_timed_out",
+        "err_empty_response",
+        "502",
+        "503",
+        "504",
+        "bad gateway",
+        "service unavailable",
+        "gateway time-out",
+    )
+    return any(marker in haystack for marker in markers)
 
 
 def is_dark_mode_enabled() -> bool:
@@ -203,16 +229,43 @@ def main() -> None:
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
 
+    # Hide automation indicators to avoid bot detection (mirror fill_timesheet.py)
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+
     driver = webdriver.Chrome(options=chrome_options)
+
+    # Override the user-agent so headless Chrome does not expose "HeadlessChrome",
+    # which Ultimatix detects and rejects with a "network fluctuations" error
+    # right after EasyAuth approval. Derive it from the real UA to stay in sync
+    # with the installed Chrome version.
+    try:
+        real_ua = driver.execute_script("return navigator.userAgent")
+        clean_ua = real_ua.replace("HeadlessChrome", "Chrome")
+        driver.execute_cdp_cmd(
+            "Network.setUserAgentOverride", {"userAgent": clean_ua}
+        )
+    except Exception as ua_err:
+        print(f"Could not override user-agent: {ua_err}", file=sys.stderr)
+
+    # Remove navigator.webdriver flag
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"},
+    )
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
 
     try:
-        # Step 1: Open the timesheet URL
-        print(f"Opening {TIMESHEET_URL} ...")
+        # Step 1: Open the Ultimatix portal home (retry on transient network
+        # errors). Authenticating against the portal first, then navigating to
+        # the timesheet, mirrors normal user behaviour and avoids the
+        # post-EasyAuth "network fluctuations" rejection.
+        print(f"Opening {PORTAL_URL} ...")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
-                driver.get(TIMESHEET_URL)
+                driver.get(PORTAL_URL)
                 break
             except Exception as nav_err:
                 err_msg = str(nav_err)
@@ -237,6 +290,7 @@ def main() -> None:
 
         # Step 2: Wait for login page
         print("Waiting for login page...")
+        print(f"Current URL after navigation: {driver.current_url}")
         login_attempts = 3
         username_input = None
         for login_attempt in range(1, login_attempts + 1):
@@ -248,11 +302,13 @@ def main() -> None:
             except TimeoutException:
                 if login_attempt < login_attempts:
                     print(
-                        f"Page failed to load (attempt {login_attempt}/{login_attempts}). Refreshing..."
+                        f"Page failed to load (attempt {login_attempt}/{login_attempts}): "
+                        f"title='{driver.title}'. Refreshing..."
                     )
                     driver.refresh()
                     time.sleep(3)
                 else:
+                    error_logger.write_report("Loading login page", driver=driver)
                     raise
 
         # Step 3: Enter employee ID and proceed
@@ -343,13 +399,75 @@ def main() -> None:
             pass
 
         dismiss(easyauth_toast)
-        print("Authentication successful!")
+        print("Authentication successful! Redirected to:", driver.current_url)
+
+        # Give the post-approval SAML redirect chain time to settle before
+        # navigating onward.
+        time.sleep(5)
+
+        # Now that the portal session is established, navigate to the timesheet.
+        # The timesheet backend occasionally returns a transient error page
+        # (WebLogic bridge failure, ERR_NETWORK_CHANGED, etc.) instead of the
+        # actual app. Detect those and retry rather than mistaking them for an
+        # empty task list.
+        timesheet_load_retries = 5
+        for ts_attempt in range(1, timesheet_load_retries + 1):
+            print(
+                f"Opening timesheet at {TIMESHEET_URL} "
+                f"(attempt {ts_attempt}/{timesheet_load_retries}) ..."
+            )
+            try:
+                driver.get(TIMESHEET_URL)
+            except Exception as nav_err:
+                print(f"Timesheet navigation error: {str(nav_err).splitlines()[0]}")
+            time.sleep(3)
+
+            if not is_timesheet_error_page(driver):
+                break
+
+            print("Timesheet returned a transient error page.")
+            if ts_attempt < timesheet_load_retries:
+                time.sleep(5 * ts_attempt)
+            else:
+                print(
+                    "Timesheet failed to load after several attempts.",
+                    file=sys.stderr,
+                )
+                error_logger.write_report("Loading timesheet page", driver=driver)
+                notify(
+                    "SilentSheet",
+                    "The timesheet page wouldn't load after several tries. "
+                    "Please try again later.",
+                    duration="short",
+                )
+                if not choose_mode:
+                    print("SCRAPE_RESULT:[]")
+                return
 
         # Step 6: Scrape available tasks
         print("Waiting for timesheet page to load...")
-        wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "span.taskNameFont"))
-        )
+        try:
+            wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "span.taskNameFont"))
+            )
+        except TimeoutException:
+            # If a transient error page rendered after our initial check, treat
+            # it as a load failure rather than an empty task list.
+            if is_timesheet_error_page(driver):
+                print(
+                    "Timesheet error page detected while scraping tasks.",
+                    file=sys.stderr,
+                )
+                error_logger.write_report("Loading timesheet page", driver=driver)
+                notify(
+                    "SilentSheet",
+                    "The timesheet didn't load properly. Please try again later.",
+                    duration="short",
+                )
+                if not choose_mode:
+                    print("SCRAPE_RESULT:[]")
+                return
+            raise
         time.sleep(2)  # let Angular finish rendering
 
         tasks = []
