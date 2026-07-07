@@ -47,6 +47,10 @@ from notification import notify, set_default_icon, dismiss, dismiss_all  # noqa:
 PROTOCOL_NAME = "silentsheet"
 
 
+class EasyAuthUnavailableError(Exception):
+    """Raised when the EasyAuth button is missing from the login page."""
+
+
 def _is_protocol_launch() -> bool:
     """Check if the script was launched via the silentsheet: URL protocol."""
     return len(sys.argv) > 1 and sys.argv[1].startswith(f"{PROTOCOL_NAME}:")
@@ -529,9 +533,16 @@ def main() -> None:
 
         # Step 5: Wait for redirect and click EasyAuth button
         print("Waiting for EasyAuth button...")
-        easyauth_button = wait.until(
-            EC.element_to_be_clickable((By.ID, "easyAuth-btn"))
-        )
+        try:
+            easyauth_button = wait.until(
+                EC.element_to_be_clickable((By.ID, "easyAuth-btn"))
+            )
+        except TimeoutException as timeout_exc:
+            # The EasyAuth option is sometimes unavailable on the login page,
+            # leaving no way to authenticate automatically.
+            raise EasyAuthUnavailableError(
+                "EasyAuth button not found on the login page."
+            ) from timeout_exc
         easyauth_button.click()
 
         # Step 6: Get the authentication number (wait until digits text is non-empty)
@@ -772,16 +783,18 @@ def main() -> None:
             print(f"Current effort: '{current_value}'. Filling 9 hours...")
             effort_input.clear()
             effort_input.send_keys("9")
-            # Click elsewhere to trigger ng-blur so Angular picks up the change
-            driver.find_element(By.ID, "tsMainBody").click()
+            # Click elsewhere to trigger ng-blur so Angular picks up the change.
+            # Use JS blur instead of a specific element id, since that id is
+            # not guaranteed to be stable across page updates.
+            driver.execute_script(
+                "if (document.activeElement) document.activeElement.blur();"
+            )
             time.sleep(1)
 
             # Step 8: Click Submit
             print("Clicking Submit...")
             submit_button = wait.until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, "input.buttonClass[value='Submit']")
-                )
+                EC.element_to_be_clickable((By.ID, "submit"))
             )
             submit_button.click()
             print("Timesheet submitted! Verifying...")
@@ -819,7 +832,15 @@ def main() -> None:
         logger.exception("Timesheet automation failed")
         print(f"Error: {e}", file=sys.stderr)
 
-        if isinstance(e, TimeoutError) and "timed out" in str(e).lower():
+        if isinstance(e, EasyAuthUnavailableError):
+            error_logger.write_report("EasyAuth button missing", exc=e, driver=driver)
+            notify(
+                "SilentSheet",
+                "EasyAuth button is missing today. Please fill the timesheet "
+                "manually today.",
+                duration="short",
+            )
+        elif isinstance(e, TimeoutError) and "timed out" in str(e).lower():
             error_logger.write_report("EasyAuth approval", exc=e, driver=driver)
 
             startup_dir = (
