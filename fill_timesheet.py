@@ -607,6 +607,13 @@ def main() -> None:
             dismiss(easyauth_toast)
             raise TimeoutError("EasyAuth request timed out waiting for approval.")
 
+        dismiss(easyauth_toast)
+        approved_toast = notify(
+            "EasyAuth Approved",
+            "Authentication successful! Filling timesheet...",
+            duration="short",
+        )
+
         # Give the post-approval SAML redirect chain time to settle before
         # inspecting the page or navigating onward.
         time.sleep(5)
@@ -615,19 +622,13 @@ def main() -> None:
         try:
             timeout_div = driver.find_elements(By.ID, "timeout")
             if timeout_div and timeout_div[0].is_displayed():
-                dismiss(easyauth_toast)
+                dismiss(approved_toast)
                 raise TimeoutError("EasyAuth request timed out.")
         except Exception as e:
             if isinstance(e, TimeoutError):
                 raise
             pass
 
-        dismiss(easyauth_toast)
-        approved_toast = notify(
-            "EasyAuth Approved",
-            "Authentication successful! Filling timesheet...",
-            duration="short",
-        )
         print("Authentication successful! Redirected to:", driver.current_url)
 
         # Now that the portal session is established, navigate to the timesheet.
