@@ -24,7 +24,10 @@ except ImportError:  # pragma: no cover
 
 from PIL import Image, ImageDraw, ImageFont
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.edge.service import Service as EdgeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -328,6 +331,48 @@ def _handle_mark_done(mark_date: str | None) -> None:
     print("Marked today as done via notification button.")
 
 
+def _configure_browser_options(options, headless: bool):
+    """Apply the shared Chromium flags to a Chrome or Edge options instance."""
+    if headless:
+        options.add_argument("--headless=new")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--window-size=1920,1080")
+    else:
+        options.add_argument("--start-maximized")
+
+    # Hide automation indicators to avoid bot detection
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation", "enable-logging"]
+    )
+    options.add_experimental_option("useAutomationExtension", False)
+
+    # Silence Chromium's internal INFO/WARNING/ERROR console spam (DevTools
+    # listening banner, benign task-manager errors, etc.)
+    options.add_argument("--log-level=3")
+    return options
+
+
+def _launch_browser(headless: bool):
+    """Launch Chrome, falling back to Microsoft Edge if Chrome fails to start."""
+    try:
+        chrome_options = _configure_browser_options(ChromeOptions(), headless)
+        chrome_service = ChromeService(log_output=subprocess.DEVNULL)
+        return webdriver.Chrome(service=chrome_service, options=chrome_options), "Chrome"
+    except Exception as chrome_err:
+        # Only the first line is useful on screen; the full trace still goes to the log file.
+        first_line = str(chrome_err).strip().splitlines()[0] if str(chrome_err) else chrome_err.__class__.__name__
+        logger.error("Chrome failed to launch, falling back to Edge: %s", chrome_err)
+        print(
+            f"Chrome failed to launch ({chrome_err.__class__.__name__}: {first_line}). "
+            "Falling back to Microsoft Edge..."
+        )
+        edge_options = _configure_browser_options(EdgeOptions(), headless)
+        edge_service = EdgeService(log_output=subprocess.DEVNULL)
+        driver = webdriver.Edge(service=edge_service, options=edge_options)
+        return driver, "Edge"
+
+
 def main() -> None:
     # Handle protocol-launched mark-done requests (silentsheet:markdone-YYYY-MM-DD)
     if _is_protocol_launch():
@@ -402,26 +447,14 @@ def main() -> None:
             mark_notified_today()
         return
 
-    # Set up Chrome browser
-    chrome_options = Options()
-    if headless:
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-    else:
-        chrome_options.add_argument("--start-maximized")
-
-    # Hide automation indicators to avoid bot detection
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option("useAutomationExtension", False)
-
-    driver = webdriver.Chrome(options=chrome_options)
+    # Set up the browser, falling back to Edge if Chrome can't be launched
+    driver, browser_name = _launch_browser(headless)
+    print(f"Using browser: {browser_name}")
 
     # Override the user-agent so headless Chrome does not expose "HeadlessChrome",
     # which Ultimatix detects and rejects with a "network fluctuations" error
     # right after EasyAuth approval. Derive it from the real UA to stay in sync
-    # with the installed Chrome version.
+    # with the installed browser version.
     try:
         real_ua = driver.execute_script("return navigator.userAgent")
         clean_ua = real_ua.replace("HeadlessChrome", "Chrome")
