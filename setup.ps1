@@ -146,6 +146,46 @@ function Write-ErrorReport {
     }
 }
 
+function Install-PythonDependencies {
+    param([ValidateSet('uv', 'pip')][string]$Manager)
+
+    if ($Manager -eq 'uv') {
+        $command = 'uv'
+        $onlineArgs = @('pip', 'install', '-r', 'requirements.txt')
+    } else {
+        $command = '.\.venv\Scripts\pip.exe'
+        $onlineArgs = @('install', '-r', 'requirements.txt')
+    }
+
+    if (Test-Path 'packages') {
+        Write-Host " Installing dependencies from local packages with $Manager..." -ForegroundColor Cyan
+        if ($Manager -eq 'uv') {
+            $offlineArgs = @('pip', 'install', '--no-index', '--find-links=packages', '-r', 'requirements.txt')
+        } else {
+            $offlineArgs = @('install', '--no-index', '--find-links=packages', '-r', 'requirements.txt')
+        }
+        & $command @offlineArgs
+        $installExitCode = $LASTEXITCODE
+        if ($installExitCode -eq 0) {
+            return $true
+        }
+        Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
+    } else {
+        Write-Host " Downloading dependencies from the internet with $Manager..." -ForegroundColor Cyan
+    }
+
+    & $command @onlineArgs
+    $installExitCode = $LASTEXITCODE
+    if ($installExitCode -eq 0) {
+        return $true
+    }
+
+    Write-ErrorReport -Context "Installing Python dependencies ($Manager)" `
+        -Message "$Manager failed to install dependencies from the internet." `
+        -Details "$command $($onlineArgs -join ' ') exited with code $installExitCode"
+    return $false
+}
+
 # --- Setup Start ---
 Clear-Host
 
@@ -588,61 +628,18 @@ if ($Silent -and (Test-Path ".venv")) {
 if ($UseUv) {
     Write-Host " Creating virtual environment with uv..." -ForegroundColor Cyan
     uv venv | Out-Null
-    if (Test-Path "packages") {
-        Write-Host " Installing dependencies from local packages..." -ForegroundColor Cyan
-        uv pip install --no-index --find-links=packages -r requirements.txt
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
-            uv pip install -r requirements.txt
-            if ($LASTEXITCODE -ne 0) {
-                Write-ErrorReport -Context "Installing Python dependencies (uv, online fallback)" `
-                    -Message "uv failed to install dependencies after falling back to online mode." `
-                    -Details "uv pip install -r requirements.txt exited with code $LASTEXITCODE"
-                Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
-                exit 1
-            }
-        }
-    } else {
-        Write-Host " Downloading dependencies from the internet with uv..." -ForegroundColor Cyan
-        uv pip install -r requirements.txt
-        if ($LASTEXITCODE -ne 0) {
-            Write-ErrorReport -Context "Installing Python dependencies (uv, online)" `
-                -Message "uv failed to install dependencies from the internet." `
-                -Details "uv pip install -r requirements.txt exited with code $LASTEXITCODE"
-            Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
-            exit 1
-        }
-    }
+    $dependenciesInstalled = Install-PythonDependencies -Manager 'uv'
 } else {
     Write-Host " Creating virtual environment with $global:pythonCmd -m venv..." -ForegroundColor Cyan
     & $global:pythonCmd -m venv .venv
-    if (Test-Path "packages") {
-        Write-Host " Installing dependencies from local packages with pip..." -ForegroundColor Cyan
-        .\.venv\Scripts\pip.exe install --no-index --find-links=packages -r requirements.txt | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host " [!] Offline installation failed. Falling back to online installation..." -ForegroundColor Yellow
-            .\.venv\Scripts\pip.exe install -r requirements.txt | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                Write-ErrorReport -Context "Installing Python dependencies (pip, online fallback)" `
-                    -Message "pip failed to install dependencies after falling back to online mode." `
-                    -Details ".\.venv\Scripts\pip.exe install -r requirements.txt exited with code $LASTEXITCODE"
-                Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
-                exit 1
-            }
-        }
-    } else {
-        Write-Host " Downloading dependencies from the internet with pip..." -ForegroundColor Cyan
-        .\.venv\Scripts\pip.exe install -r requirements.txt | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-ErrorReport -Context "Installing Python dependencies (pip, online)" `
-                -Message "pip failed to install dependencies from the internet." `
-                -Details ".\.venv\Scripts\pip.exe install -r requirements.txt exited with code $LASTEXITCODE"
-            Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
-            exit 1
-        }
-    }
+    $dependenciesInstalled = Install-PythonDependencies -Manager 'pip'
+}
+if (-not $dependenciesInstalled) {
+    Write-Host " [X] Couldn't install Python dependencies. See logs folder for details." -ForegroundColor Red
+    exit 1
 }
 Write-Host " [+] Dependencies configured successfully." -ForegroundColor Green
+. (Join-Path $PWD.Path 'src\task_workflow.ps1')
 
 # Register AppUserModelId early so toast notifications display "SilentSheet"
 # during the task-scrape step below (and all subsequent runs).
@@ -717,68 +714,24 @@ if (-not $skipConfig) {
     }
 
     if ($internetAvailable) {
-    Write-Host ""
-    Write-Host " [i] Detecting available tasks from the timesheet..." -ForegroundColor Cyan
-    Write-Host "     Approve the EasyAuth request on your Authenticator app when prompted." -ForegroundColor DarkGray
-    Write-Host ""
-
-        # Run the standalone scrape script in a background job with a loading animation
-        if ($UseUv) {
-            $scrapeJob = Start-Job -ScriptBlock {
-                param($dir, $empId)
-                Set-Location $dir
-                uv run --no-sync python src\scrape_tasks.py $empId 2>&1 | Out-String
-            } -ArgumentList $PWD, $employeeId
-        } else {
-            $scrapeJob = Start-Job -ScriptBlock {
-                param($dir, $empId)
-                Set-Location $dir
-                & "$dir\.venv\Scripts\python.exe" src\scrape_tasks.py $empId 2>&1 | Out-String
-            } -ArgumentList $PWD, $employeeId
-        }
-
-        # Show loading spinner while the scrape job runs
-        [System.Console]::CursorVisible = $false
-        $spinner = @('-', '\', '|', '/')
-        $spinIdx = 0
-        while ($scrapeJob.State -eq 'Running') {
-            Write-Host "`r  [$($spinner[$spinIdx % 4])] Fetching tasks from timesheet..." -NoNewline -ForegroundColor Cyan
-            $spinIdx++
-            Start-Sleep -Milliseconds 100
-        }
-        Write-Host "`r                                                            `r" -NoNewline
-        [System.Console]::CursorVisible = $true
-
-        $scrapeOutput = Receive-Job -Job $scrapeJob
-        Remove-Job -Job $scrapeJob
-
-        # Find the SCRAPE_RESULT: line and parse the JSON
-        $resultLine = ($scrapeOutput -split "`n") | Where-Object { $_ -match "^SCRAPE_RESULT:" } | Select-Object -Last 1
-        if ($resultLine) {
-            $jsonStr = $resultLine -replace "^SCRAPE_RESULT:", ""
-            try {
-                $tasks = $jsonStr | ConvertFrom-Json
-                if ($tasks.Count -gt 0) {
-                    $scrapeSuccess = $true
-                    # Build display strings: "TaskName [ChargeType]"
-                    $taskOptions = @()
-                    foreach ($t in $tasks) {
-                        $taskOptions += "$($t.task_name) [$($t.charge_type)]"
-                    }
-
-                    Write-Host ""
-                    $selectedTaskIdx = Select-Option -Prompt "Select Task and Charge Type" -Options $taskOptions
-                    $taskName = $tasks[$selectedTaskIdx].task_name
-                    $chargeType = $tasks[$selectedTaskIdx].charge_type
-                    Write-Host ""
-                    Write-Host " [+] Selected: $taskName [$chargeType]" -ForegroundColor Green
-                } else {
-                    Write-Host " [!] No tasks found on the timesheet. Falling back to manual input." -ForegroundColor Yellow
-                }
-            } catch {
-                Write-Host " [!] Failed to parse task data. Falling back to manual input." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host " [i] Detecting available tasks from the timesheet..." -ForegroundColor Cyan
+        Write-Host "     Approve the EasyAuth request on your Authenticator app when prompted." -ForegroundColor DarkGray
+        Write-Host ""
+        try {
+            $pythonExe = Join-Path $PWD.Path '.venv\Scripts\python.exe'
+            $tasks = @(Invoke-TimesheetTaskScrape -PythonExe $pythonExe -ProjectRoot $PWD.Path -EmployeeId $employeeId)
+            if ($tasks.Count -gt 0) {
+                $scrapeSuccess = $true
+                $selectedTask = Select-TimesheetTask -Tasks $tasks
+                $taskName = $selectedTask.task_name
+                $chargeType = $selectedTask.charge_type
+                Write-Host ""
+                Write-Host " [+] Selected: $taskName [$chargeType]" -ForegroundColor Green
+            } else {
+                Write-Host " [!] No tasks found on the timesheet. Falling back to manual input." -ForegroundColor Yellow
             }
-        } else {
+        } catch {
             Write-Host " [!] Could not retrieve tasks. Falling back to manual input." -ForegroundColor Yellow
         }
     } else {
@@ -797,20 +750,12 @@ if (-not $skipConfig) {
     }
     
     Invoke-LoadingAnimation -Message "Writing Configuration Files" -DurationSeconds 2
-
-    # Build the TOML content
-    $configContent = @"
-[employee]
-EMPLOYEE_ID = "$employeeId"
-
-[timesheet]
-task_name = "$taskName"
-charge_type = "$chargeType"
-"@
-
-    # Write the TOML file
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText("$PWD\config.toml", $configContent.Trim(), $utf8NoBom)
+    Set-SilentSheetConfig `
+        -PythonExe (Join-Path $PWD.Path '.venv\Scripts\python.exe') `
+        -ProjectRoot $PWD.Path `
+        -EmployeeId $employeeId `
+        -TaskName $taskName `
+        -ChargeType $chargeType
     Write-Host " [+] config.toml generated." -ForegroundColor Green
 }
 
@@ -886,9 +831,9 @@ switch ($autoRunChoice) {
 if ($Silent -or (Select-YesNo "Launch SilentSheet now in the background?")) {
     Invoke-LoadingAnimation -Message "Starting Background Process" -DurationSeconds 2
     if ($UseUv) {
-        Start-Process -FilePath "uv" -ArgumentList "run", "--no-sync", "pythonw", "fill_timesheet.py", "--headless" -WindowStyle Hidden
+        Start-Process -FilePath "uv" -ArgumentList "run", "--no-sync", "pythonw", "fill_timesheet.py" -WindowStyle Hidden
     } else {
-        Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "fill_timesheet.py", "--headless" -WindowStyle Hidden
+        Start-Process -FilePath ".\.venv\Scripts\pythonw.exe" -ArgumentList "fill_timesheet.py" -WindowStyle Hidden
     }
     Write-Host " [+] SilentSheet is running! You will be notified when it requires input or finishes." -ForegroundColor Green
 }
@@ -900,10 +845,10 @@ Write-Header "Setup Complete"
 
 # Read back the config for the summary
 if (Test-Path "config.toml") {
-    $cfgRaw = Get-Content "config.toml" -Raw
-    if ($cfgRaw -match 'EMPLOYEE_ID\s*=\s*"([^"]*)"') { $sumId = $Matches[1] } else { $sumId = "?" }
-    if ($cfgRaw -match 'task_name\s*=\s*"([^"]*)"')    { $sumTask = $Matches[1] } else { $sumTask = "?" }
-    if ($cfgRaw -match 'charge_type\s*=\s*"([^"]*)"')   { $sumCharge = $Matches[1] } else { $sumCharge = "?" }
+    $configSummary = & '.\.venv\Scripts\python.exe' 'src\config_manager.py' --config 'config.toml' read | ConvertFrom-Json
+    $sumId = $configSummary.employee_id
+    $sumTask = $configSummary.task_name
+    $sumCharge = $configSummary.charge_type
 }
 
 Write-Host "  FINAL SYSTEM CONFIGURATION:" -ForegroundColor White

@@ -28,7 +28,7 @@ That's it. The installer will:
 2. Check prerequisites (Python, Google Chrome) and offer to install any missing via `winget`
 3. Create a virtual environment and install dependencies (`uv` is used automatically when available, otherwise `pip`)
 4. Prompt for your Employee ID, then auto-detect available tasks via EasyAuth
-5. Pick an auto-run mode: **Windows Startup** (for daily restart users), **Windows Login** (for sleep / lid-close users), or disable
+5. Pick an auto-run mode: **Windows Startup** (for daily restart users) or **Windows Login** (for sleep / lid-close users)
 6. Open the GitHub page when finished
 
 ### Already cloned the repo?
@@ -42,12 +42,17 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ## Manual Usage
 
 ```powershell
-# With uv
+# Headless by default, with uv
 uv run python fill_timesheet.py
 
-# With pip/venv
+# Headless by default, with pip/venv
 .\.venv\Scripts\python.exe fill_timesheet.py
+
+# Show the browser for troubleshooting
+.\.venv\Scripts\python.exe fill_timesheet.py --visible
 ```
+
+The task scraper is a non-interactive protocol command: `python src\scrape_tasks.py <employee-id>`. It emits one `SCRAPE_RESULT:<json>` line. Use the **Update Task** action in a SilentSheet notification for the interactive picker; it updates `config.toml` and retries SilentSheet in the background.
 
 ### Auto-Run Management
 
@@ -73,7 +78,7 @@ Removes all auto-run entries (Startup folder and Task Scheduler), config, logs, 
 SilentSheet checks GitHub for a newer version every time it runs. When one is available, you'll get a Windows toast titled **"SilentSheet Update Available"** with an **Update Now** button:
 
 - Click the toast (or the **Update Now** button) and SilentSheet handles the rest: it stops any running background process, downloads the latest archive into a temp folder, overwrites the project files, re-runs setup to pick up any new dependencies, and opens the GitHub page when done.
-- Your `config.toml`, `.silentsheet_state.json`, and `.venv\` are never touched — they're gitignored so they aren't in the update archive.
+- Updates preserve `config.toml`, `runtime\`, logs, and the existing `.venv\` while replacing application files. A silent setup run recreates `.venv\` to ensure installed dependencies match the current release; generated daily state and launchers remain under `runtime\`.
 
 You can also trigger the same flow yourself at any time:
 
@@ -92,7 +97,8 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Update
 6. Shows a toast notification with the EasyAuth number to approve on your phone
 7. Finds your configured task, fills 9 hours, and clicks Submit
 8. Refreshes the page and verifies the hours were saved
-9. If anything goes wrong, the user-facing toast stays short and friendly while a per-incident diagnostic report (with screenshot, page URL, and traceback) is saved to `logs/<datetime>_error.md` for later inspection
+9. Records successful completion in `runtime/.silentsheet_state.json` so later runs exit early that day
+10. If anything goes wrong, the user-facing toast stays short and friendly while a per-incident diagnostic report (with screenshot, page URL, and traceback) is saved to `logs/<datetime>_error.md` for later inspection
 
 ## Configuration
 
@@ -117,8 +123,13 @@ See `example.config.toml` for reference.
 ├── uninstall.ps1          # Clean uninstall
 ├── fill_timesheet.py      # Main automation script (entry point)
 ├── src/                   # Python helper modules
+│   ├── browser_session.py # Shared Chrome and EasyAuth session workflow
+│   ├── config_manager.py  # Canonical TOML reader/writer and setup CLI
 │   ├── scrape_tasks.py    # Detect available tasks from the timesheet
+│   ├── choose_task.ps1    # Interactive task-update host
+│   ├── task_workflow.ps1  # Shared PowerShell task picker and scraper runner
 │   ├── setup_startup.py   # Auto-run install/uninstall (Startup folder & Task Scheduler)
+│   ├── timesheet_common.py # Shared constants and daily-state helpers
 │   └── error_logger.py    # Shared diagnostic-report writer used by both Python scripts
 ├── config.toml            # Your config (gitignored)
 ├── example.config.toml    # Config template

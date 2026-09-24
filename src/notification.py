@@ -22,7 +22,6 @@ from PIL import Image
 __all__ = [
     "notify",
     "dismiss",
-    "dismiss_all",
     "set_default_icon",
 ]
 
@@ -39,6 +38,7 @@ def _is_aumid_registered(aumid: str) -> bool:
     """Check whether the given AUMID is registered in the Windows registry."""
     try:
         import winreg
+
         winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             rf"Software\Classes\AppUserModelId\{aumid}",
@@ -138,8 +138,3 @@ def notify(
 def dismiss(toast: Toast) -> None:
     """Remove a specific toast from screen and Action Center."""
     _get_toaster().remove_toast(toast)
-
-
-def dismiss_all() -> None:
-    """Clear all SilentSheet toasts from Action Center."""
-    _get_toaster().clear_toasts()
