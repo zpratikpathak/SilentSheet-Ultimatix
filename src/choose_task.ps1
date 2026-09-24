@@ -37,6 +37,7 @@ try {
     Write-Host ""
 
     $tasks = @(Invoke-TimesheetTaskScrape -PythonExe $pythonExe -ProjectRoot $projectRoot -EmployeeId $employeeId)
+    $tasks = @($tasks | ForEach-Object { $_ })
     if ($tasks.Count -eq 0) {
         Write-Host " [!] No tasks were found. The config was left as-is." -ForegroundColor Yellow
         Exit-WithPause 0

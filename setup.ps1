@@ -721,6 +721,7 @@ if (-not $skipConfig) {
         try {
             $pythonExe = Join-Path $PWD.Path '.venv\Scripts\python.exe'
             $tasks = @(Invoke-TimesheetTaskScrape -PythonExe $pythonExe -ProjectRoot $PWD.Path -EmployeeId $employeeId)
+            $tasks = @($tasks | ForEach-Object { $_ })
             if ($tasks.Count -gt 0) {
                 $scrapeSuccess = $true
                 $selectedTask = Select-TimesheetTask -Tasks $tasks

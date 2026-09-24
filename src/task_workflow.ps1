@@ -78,7 +78,7 @@ function Invoke-TimesheetTaskScrape {
             throw "Couldn't find SCRAPE_RESULT in the scraper output."
         }
         $payload = ($resultLine -replace '^SCRAPE_RESULT:', '').Trim()
-        return @($payload | ConvertFrom-Json)
+        return ($payload | ConvertFrom-Json)
     } finally {
         [System.Console]::CursorVisible = $originalCursorVisible
         if ($null -ne $job) {
@@ -90,9 +90,10 @@ function Invoke-TimesheetTaskScrape {
 function Select-TimesheetTask {
     param([Parameter(Mandatory = $true)][object[]]$Tasks)
 
-    $options = @($Tasks | ForEach-Object { "$($_.task_name) [$($_.charge_type)]" })
+    $taskList = @($Tasks | ForEach-Object { $_ })
+    $options = @($taskList | ForEach-Object { "$($_.task_name) [$($_.charge_type)]" })
     $selectedIndex = Select-TimesheetOption -Prompt 'Select Task and Charge Type' -Options $options
-    return $Tasks[$selectedIndex]
+    return $taskList[$selectedIndex]
 }
 
 function Get-SilentSheetEmployeeId {
