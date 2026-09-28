@@ -7,7 +7,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-STARTUP_DIR = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+STARTUP_DIR = (
+    Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
+)
 # This file lives in src/, so PROJECT_DIR is the project root (one level up).
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = PROJECT_DIR / "runtime"
@@ -20,19 +22,19 @@ SCHED_TASK_NAME = "SilentSheet"
 # Startup folder method (existing)
 # ---------------------------------------------------------------------------
 
+
 def generate_vbs() -> str:
     """Generate VBS content with paths based on the current machine."""
     python_exe = PROJECT_DIR / ".venv" / "Scripts" / "pythonw.exe"
     script_path = PROJECT_DIR / "fill_timesheet.py"
     # Use chr(34) to safely produce double-quote characters inside VBS strings,
     # avoiding fragile nested-quote escaping entirely.
-    # Pass --headless so Chrome runs invisibly on startup.
     # Use True (wait for completion) so Task Scheduler keeps the task "running"
     # and its MultipleInstancesPolicy=IgnoreNew can suppress duplicate triggers.
     return (
         'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.CurrentDirectory = "{PROJECT_DIR}"\n'
-        f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34) & " --headless", 0, True\n'
+        f'WshShell.Run chr(34) & "{python_exe}" & chr(34) & " " & chr(34) & "{script_path}" & chr(34), 0, True\n'
     )
 
 
@@ -55,6 +57,7 @@ def uninstall_startup() -> None:
 # ---------------------------------------------------------------------------
 # Task Scheduler method (logon + session unlock)
 # ---------------------------------------------------------------------------
+
 
 def _get_current_user() -> str:
     """Return DOMAIN\\Username for the current user."""
@@ -126,12 +129,23 @@ def install_logon() -> None:
     try:
         tmp_path.write_text(xml_content, encoding="utf-16")
         result = subprocess.run(
-            ["schtasks", "/create", "/tn", SCHED_TASK_NAME, "/xml", str(tmp_path), "/f"],
-            capture_output=True, text=True,
+            [
+                "schtasks",
+                "/create",
+                "/tn",
+                SCHED_TASK_NAME,
+                "/xml",
+                str(tmp_path),
+                "/f",
+            ],
+            capture_output=True,
+            text=True,
         )
         if result.returncode == 0:
             print(f"Scheduled task '{SCHED_TASK_NAME}' created.")
-            print("SilentSheet will now automatically fill your timesheet in background.")
+            print(
+                "SilentSheet will now automatically fill your timesheet in background."
+            )
         else:
             print(f"Failed to create scheduled task: {result.stderr.strip()}")
     finally:
@@ -141,11 +155,15 @@ def install_logon() -> None:
 def uninstall_logon() -> None:
     result = subprocess.run(
         ["schtasks", "/delete", "/tn", SCHED_TASK_NAME, "/f"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode == 0:
         print(f"Scheduled task '{SCHED_TASK_NAME}' removed.")
-    elif "cannot find" not in result.stderr.lower() and "does not exist" not in result.stderr.lower():
+    elif (
+        "cannot find" not in result.stderr.lower()
+        and "does not exist" not in result.stderr.lower()
+    ):
         print(f"Failed to remove scheduled task: {result.stderr.strip()}")
     if TASK_VBS_DEST.exists():
         TASK_VBS_DEST.unlink()
@@ -156,13 +174,13 @@ def uninstall_logon() -> None:
 # ---------------------------------------------------------------------------
 
 COMMANDS = {
-    "install":           lambda: install_startup(),
-    "install-startup":   install_startup,
-    "install-logon":     install_logon,
+    "install": lambda: install_startup(),
+    "install-startup": install_startup,
+    "install-logon": install_logon,
     "uninstall-startup": uninstall_startup,
-    "uninstall-logon":   uninstall_logon,
-    "uninstall":         lambda: (uninstall_startup(), uninstall_logon()),
-    "uninstall-all":     lambda: (uninstall_startup(), uninstall_logon()),
+    "uninstall-logon": uninstall_logon,
+    "uninstall": lambda: (uninstall_startup(), uninstall_logon()),
+    "uninstall-all": lambda: (uninstall_startup(), uninstall_logon()),
 }
 
 if __name__ == "__main__":
