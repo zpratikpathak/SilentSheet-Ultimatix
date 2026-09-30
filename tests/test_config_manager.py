@@ -9,10 +9,27 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from config_manager import load_config, main, update_task, write_config
+from config_manager import (
+    get_browser_preference,
+    load_config,
+    main,
+    mark_prefer_edge,
+    update_task,
+    write_config,
+)
 
 
 class ConfigManagerTests(unittest.TestCase):
+    def test_mark_prefer_edge_persists_and_is_read_back(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.toml"
+            write_config(path, "12345678", "Development", "Billable")
+            self.assertIsNone(get_browser_preference(load_config(path)))
+            mark_prefer_edge(path)
+            config = load_config(path)
+            self.assertEqual(get_browser_preference(config), "Edge")
+            self.assertEqual(config["employee"]["EMPLOYEE_ID"], "12345678")
+
     def test_round_trip_escapes_strings_and_writes_without_bom(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"

@@ -9,3 +9,9 @@ task_name = "Development"
 # The charge type for the task. 
 # Supported values typically include: "Billable", "Non Billable"
 charge_type = "Billable"
+
+# [browser]
+# Set automatically after Chrome repeatedly fails to launch and SilentSheet
+# falls back to Edge. When true, future runs skip the Chrome launch attempt
+# entirely and use Edge directly.
+# prefer_edge = true

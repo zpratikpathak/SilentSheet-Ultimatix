@@ -36,6 +36,8 @@ class ScrapeContractTests(unittest.TestCase):
             headless=True,
             approval_timeout=120,
             error_context="Waiting for EasyAuth approval (task list)",
+            force_edge=False,
+            config_path=scrape_tasks.CONFIG_FILE,
         )
         result_lines = [
             line

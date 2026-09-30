@@ -102,7 +102,28 @@ def configure_browser_options(options, headless: bool):
     return options
 
 
-def launch_browser(headless: bool, logger: logging.Logger | None = None):
+def _launch_edge(headless: bool):
+    options = configure_browser_options(EdgeOptions(), headless)
+    service = EdgeService(log_output=subprocess.DEVNULL)
+    return webdriver.Edge(service=service, options=options), "Edge"
+
+
+def launch_browser(
+    headless: bool,
+    logger: logging.Logger | None = None,
+    *,
+    force_edge: bool = False,
+    config_path: Path | None = None,
+):
+    """Launch Chrome, falling back to Edge on failure.
+
+    If `force_edge` is set (config.toml has browser.prefer_edge = true),
+    Chrome is skipped entirely. Otherwise, if Chrome fails to launch and
+    `config_path` is given, the preference is persisted for future runs.
+    """
+    if force_edge:
+        print("Using Microsoft Edge (config.toml: browser.prefer_edge = true).")
+        return _launch_edge(headless)
     try:
         options = configure_browser_options(ChromeOptions(), headless)
         service = ChromeService(log_output=subprocess.DEVNULL)
@@ -121,9 +142,19 @@ def launch_browser(headless: bool, logger: logging.Logger | None = None):
             f"Chrome failed to launch ({type(chrome_error).__name__}: {first_line}). "
             "Falling back to Microsoft Edge..."
         )
-        options = configure_browser_options(EdgeOptions(), headless)
-        service = EdgeService(log_output=subprocess.DEVNULL)
-        return webdriver.Edge(service=service, options=options), "Edge"
+        if config_path is not None:
+            try:
+                from config_manager import mark_prefer_edge
+
+                mark_prefer_edge(config_path)
+                print("Recorded browser.prefer_edge in config.toml for future runs.")
+            except Exception as config_error:
+                if logger:
+                    logger.error(
+                        "Could not update config.toml with prefer_edge: %s",
+                        config_error,
+                    )
+        return _launch_edge(headless)
 
 
 def is_transient_navigation_error(error: Exception) -> bool:
@@ -255,9 +286,13 @@ def authenticate_and_open_timesheet(
     stop_requested: Callable[[], bool] | None = None,
     show_approved_toast: bool = False,
     sleep: Callable[[float], None] = time.sleep,
+    force_edge: bool = False,
+    config_path: Path | None = None,
 ) -> BrowserSession:
     """Authenticate through EasyAuth and return a session on the timesheet page."""
-    driver, browser_name = launch_browser(headless, logger)
+    driver, browser_name = launch_browser(
+        headless, logger, force_edge=force_edge, config_path=config_path
+    )
     wait = WebDriverWait(driver, WAIT_TIMEOUT)
     toast = None
     try:

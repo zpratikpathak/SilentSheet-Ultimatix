@@ -17,10 +17,12 @@ from selenium.webdriver.support import expected_conditions as EC
 
 import error_logger
 from browser_session import authenticate_and_open_timesheet, is_transient_page
+from config_manager import get_browser_preference, load_config
 from notification import notify, set_default_icon
 from timesheet_common import CHARGE_TYPE_COLUMNS
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
+CONFIG_FILE = PROJECT_DIR / "config.toml"
 set_default_icon(PROJECT_DIR / "favicon.ico")
 
 
@@ -82,6 +84,12 @@ def main(argv: list[str] | None = None) -> int:
             headless=True,
             approval_timeout=120,
             error_context="Waiting for EasyAuth approval (task list)",
+            force_edge=(
+                get_browser_preference(load_config(CONFIG_FILE)) == "Edge"
+                if CONFIG_FILE.exists()
+                else False
+            ),
+            config_path=CONFIG_FILE,
         )
         tasks = scrape_tasks(session.driver, session.wait)
         print(f"Found {len(tasks)} task(s).")

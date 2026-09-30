@@ -55,7 +55,7 @@ def _replace_owned_values(text: str, values: dict[tuple[str, str], str]) -> str:
                 break
         output.append(replacement if replacement is not None else line)
 
-    for section in ("employee", "timesheet"):
+    for section in dict.fromkeys(section for section, _ in values):
         missing = [
             (key, value)
             for (owner, key), value in values.items()
@@ -103,6 +103,31 @@ def write_config(
 def update_task(path: Path, task_name: str, charge_type: str) -> None:
     config = load_config(path)
     write_config(path, config["employee"]["EMPLOYEE_ID"], task_name, charge_type)
+
+
+def get_browser_preference(config: dict[str, Any]) -> str | None:
+    """Return 'Edge' if config.toml records that Chrome should be skipped."""
+    if config.get("browser", {}).get("prefer_edge") is True:
+        return "Edge"
+    return None
+
+
+def mark_prefer_edge(path: Path) -> None:
+    """Persist that Chrome failed to launch so future runs go straight to Edge."""
+    existing = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+    content = _replace_owned_values(existing, {("browser", "prefer_edge"): True})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(content)
+        os.replace(temporary_path, path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _build_parser() -> argparse.ArgumentParser:

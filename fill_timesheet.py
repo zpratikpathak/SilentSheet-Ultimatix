@@ -43,7 +43,7 @@ from browser_session import (  # noqa: E402
     authenticate_and_open_timesheet,
     is_transient_page,
 )
-from config_manager import load_config  # noqa: E402
+from config_manager import get_browser_preference, load_config  # noqa: E402
 from notification import notify, set_default_icon, dismiss  # noqa: E402
 from timesheet_common import (  # noqa: E402
     CHARGE_TYPE_COLUMNS,
@@ -67,6 +67,7 @@ _config = load_config(CONFIG_FILE)
 EMPLOYEE_ID = _config["employee"]["EMPLOYEE_ID"]
 TASK_NAME = _config.get("timesheet", {}).get("task_name", DEFAULT_TASK_NAME)
 CHARGE_TYPE = _config.get("timesheet", {}).get("charge_type", DEFAULT_CHARGE_TYPE)
+FORCE_EDGE = get_browser_preference(_config) == "Edge"
 
 # Version check against GitHub
 PYPROJECT_FILE = SCRIPT_DIR / "pyproject.toml"
@@ -296,6 +297,8 @@ def main(argv: list[str] | None = None) -> None:
             notification_action=("Mark as Done", mark_done_launch),
             stop_requested=already_done_today,
             show_approved_toast=True,
+            force_edge=FORCE_EDGE,
+            config_path=CONFIG_FILE,
         )
         driver = session.driver
         wait = session.wait
