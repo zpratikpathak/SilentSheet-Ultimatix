@@ -67,12 +67,18 @@ def _replace_owned_values(text: str, values: dict[tuple[str, str], Any]) -> str:
         ]
         if not missing:
             continue
-        header = next((i for i, line in enumerate(output)
-                       if (match := _SECTION_RE.match(line))
-                       and match.group(1).strip() == section), None)
+        header = next(
+            (
+                i
+                for i, line in enumerate(output)
+                if (match := _SECTION_RE.match(line))
+                and match.group(1).strip() == section
+            ),
+            None,
+        )
         additions = [f"{key} = {_toml_string(value)}" for key, value in missing]
         if header is not None:
-            output[header + 1:header + 1] = additions
+            output[header + 1 : header + 1] = additions
         else:
             output.extend(["", f"[{section}]", *additions])
 

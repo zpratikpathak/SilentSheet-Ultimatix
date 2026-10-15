@@ -1,4 +1,5 @@
 """Stdlib-only setup and interactive configuration orchestration."""
+
 from __future__ import annotations
 
 import json
@@ -19,6 +20,7 @@ def select_option(prompt: str, options: list[str], default: int = 0) -> int:
         print(f"{i}. {option}")
     if os.name == "nt" and sys.stdin.isatty() and sys.stdout.isatty():
         import msvcrt
+
         selected = default
         # ponytail: line-based redraw avoids ANSI/cursor mutation; add native console rendering if needed.
         print(f"Selected: {options[selected]} (arrows, Enter, Escape)")
@@ -64,8 +66,17 @@ def _run(root: Path, command: list[str], **kwargs):
 
 
 def validate_python(root: Path, python: Path) -> None:
-    _run(root, [str(python), "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)"],
-         capture_output=True, text=True, timeout=30)
+    _run(
+        root,
+        [
+            str(python),
+            "-c",
+            "import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
 
 
 def install_dependencies(root: Path) -> None:
@@ -92,7 +103,9 @@ def install_dependencies(root: Path) -> None:
                 return
             except (OSError, subprocess.CalledProcessError) as error:
                 failures.append(str(error))
-    raise RuntimeError("Dependency installation failed (offline and online): " + "; ".join(failures))
+    raise RuntimeError(
+        "Dependency installation failed (offline and online): " + "; ".join(failures)
+    )
 
 
 def find_browser() -> Path | None:
@@ -102,7 +115,10 @@ def find_browser() -> Path | None:
             return Path(found)
     for variable in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"):
         if base := os.environ.get(variable):
-            for relative in ("Google/Chrome/Application/chrome.exe", "Microsoft/Edge/Application/msedge.exe"):
+            for relative in (
+                "Google/Chrome/Application/chrome.exe",
+                "Microsoft/Edge/Application/msedge.exe",
+            ):
                 candidate = Path(base) / relative
                 if candidate.is_file():
                     return candidate
@@ -114,27 +130,45 @@ def ensure_browser(root: Path, silent: bool) -> None:
         return
     if silent or not shutil.which("winget"):
         raise RuntimeError("Chrome or Edge is required; install one and rerun setup")
-    if select_option("No browser found. Install Edge?", ["Cancel", "Install Edge"]) == 0:
+    if (
+        select_option("No browser found. Install Edge?", ["Cancel", "Install Edge"])
+        == 0
+    ):
         raise KeyboardInterrupt
     _run(root, ["winget", "install", "--id", "Microsoft.Edge", "--exact"])
     if not find_browser():
-        raise RuntimeError("Browser still unavailable; finish installation and rerun setup")
+        raise RuntimeError(
+            "Browser still unavailable; finish installation and rerun setup"
+        )
 
 
 def scrape_tasks(root: Path, employee_id: str) -> list[dict[str, str]]:
     root = root.resolve()
-    result = _run(root, [str(venv_python(root)), str(root / "src" / "scrape_tasks.py"), employee_id],
-                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
-                  env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-    payloads = [line.removeprefix("SCRAPE_RESULT:") for line in result.stdout.splitlines()
-                if line.startswith("SCRAPE_RESULT:")]
+    result = _run(
+        root,
+        [str(venv_python(root)), str(root / "src" / "scrape_tasks.py"), employee_id],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=300,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+    payloads = [
+        line.removeprefix("SCRAPE_RESULT:")
+        for line in result.stdout.splitlines()
+        if line.startswith("SCRAPE_RESULT:")
+    ]
     if len(payloads) != 1:
         raise ValueError("Expected one SCRAPE_RESULT")
     tasks = json.loads(payloads[0])
     if not isinstance(tasks, list) or any(
-        not isinstance(task, dict) or any(
+        not isinstance(task, dict)
+        or any(
             not isinstance(task.get(key), str) or not task[key].strip()
-            for key in ("task_name", "charge_type")) for task in tasks
+            for key in ("task_name", "charge_type")
+        )
+        for task in tasks
     ):
         raise ValueError("Invalid scraper task data")
     if not tasks:
@@ -143,12 +177,19 @@ def scrape_tasks(root: Path, employee_id: str) -> list[dict[str, str]]:
 
 
 def _select_task(tasks: list[dict[str, str]]) -> dict[str, str]:
-    return tasks[select_option("Select task", [f"{t['task_name']} [{t['charge_type']}]" for t in tasks])]
+    return tasks[
+        select_option(
+            "Select task", [f"{t['task_name']} [{t['charge_type']}]" for t in tasks]
+        )
+    ]
 
 
 def _required_config(root: Path) -> dict:
     config = load_config(root / "config.toml")
-    if any(not config.get("timesheet", {}).get(key, "").strip() for key in ("task_name", "charge_type")):
+    if any(
+        not config.get("timesheet", {}).get(key, "").strip()
+        for key in ("task_name", "charge_type")
+    ):
         raise ValueError("Complete task configuration required")
     return config
 
@@ -160,7 +201,9 @@ def configure(root: Path, silent: bool = False) -> None:
         return
     path = root / "config.toml"
     existing = load_config(path) if path.exists() else {}
-    employee = _prompt("Employee ID", existing.get("employee", {}).get("EMPLOYEE_ID", ""))
+    employee = _prompt(
+        "Employee ID", existing.get("employee", {}).get("EMPLOYEE_ID", "")
+    )
     task = existing.get("timesheet", {})
     if select_option("Task source", ["Fetch available tasks", "Enter manually"]) == 0:
         try:
@@ -185,13 +228,21 @@ def choose_task(root: Path, silent: bool = False) -> None:
     employee = config["employee"]["EMPLOYEE_ID"]
     task = _select_task(scrape_tasks(root, employee))
     write_config(root / "config.toml", employee, task["task_name"], task["charge_type"])
-    subprocess.Popen([str(venv_python(root).with_name("pythonw.exe")),
-                      str(root / "fill_timesheet.py")], cwd=root)
+    subprocess.Popen(
+        [
+            str(venv_python(root).with_name("pythonw.exe")),
+            str(root / "fill_timesheet.py"),
+        ],
+        cwd=root,
+    )
 
 
 def register_aumid(root: Path) -> None:
     import winreg
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\AppUserModelId\SilentSheet") as key:
+
+    with winreg.CreateKey(
+        winreg.HKEY_CURRENT_USER, r"Software\Classes\AppUserModelId\SilentSheet"
+    ) as key:
         winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, "SilentSheet")
         winreg.SetValueEx(key, "IconUri", 0, winreg.REG_SZ, str(root / "favicon.ico"))
 
@@ -207,17 +258,26 @@ def setup(root: Path, silent: bool = False) -> None:
     register_aumid(root)
     configure(root, silent=silent)
     from . import setup_startup
+
     if root != setup_startup.PROJECT_DIR.resolve():
         raise ValueError("Startup module installation root mismatch")
     # Existing installations keep their mode; new interactive installs choose it.
     if setup_startup.SHORTCUT_DEST.exists():
         setup_startup.install_startup()
     else:
-        status = subprocess.run(["schtasks", "/query", "/tn", setup_startup.SCHED_TASK_NAME],
-                                cwd=root, capture_output=True, text=True, timeout=30)
+        status = subprocess.run(
+            ["schtasks", "/query", "/tn", setup_startup.SCHED_TASK_NAME],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         if status.returncode == 0 or silent:
             setup_startup.install_logon()
-        elif select_option("Run automatically", ["Logon and unlock", "Startup folder"]) == 0:
+        elif (
+            select_option("Run automatically", ["Logon and unlock", "Startup folder"])
+            == 0
+        ):
             setup_startup.install_logon()
         else:
             setup_startup.install_startup()

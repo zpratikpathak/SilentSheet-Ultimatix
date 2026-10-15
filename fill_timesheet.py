@@ -20,21 +20,33 @@ from urllib.request import urlopen
 if (Path(__file__).resolve().parent / ".silentsheet-management.lock").exists():
     raise SystemExit("SilentSheet maintenance in progress; startup refused.")
 
+
 def _dispatch_management(argv: list[str]) -> bool:
     parser = argparse.ArgumentParser(description="Fill today's Ultimatix timesheet")
     parser.add_argument("action", nargs="?", help=argparse.SUPPRESS)
-    parser.add_argument("--visible", action="store_true", help="show the browser window")
+    parser.add_argument(
+        "--visible", action="store_true", help="show the browser window"
+    )
     args = parser.parse_args(argv)
-    command = {"silentsheet:update": "update", "silentsheet:choosetask": "choose-task"}.get(args.action)
+    command = {
+        "silentsheet:update": "update",
+        "silentsheet:choosetask": "choose-task",
+    }.get(args.action)
     if command is None:
         return False
     root = Path(__file__).resolve().parent
     executable = sys._base_executable if command == "update" else sys.executable
     subprocess.Popen(
-        [str(Path(executable).with_name("python.exe")), str(root / "manage.py"), command],
-        cwd=str(root), creationflags=subprocess.CREATE_NEW_CONSOLE,
+        [
+            str(Path(executable).with_name("python.exe")),
+            str(root / "manage.py"),
+            command,
+        ],
+        cwd=str(root),
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
     )
     return True
+
 
 # Maintenance dispatch must not import Selenium or read configuration.
 if __name__ == "__main__" and _dispatch_management(sys.argv[1:]):

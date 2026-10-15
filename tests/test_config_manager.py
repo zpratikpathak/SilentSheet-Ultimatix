@@ -23,7 +23,10 @@ class ConfigManagerTests(unittest.TestCase):
     def test_partial_sections_preserve_edge_and_unknown_values(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"
-            path.write_text('[employee]\n# retained\n[timesheet]\ntask_name = "Old"\n[browser]\nprefer_edge = true\n[extra]\nvalue = 42\n', encoding="utf-8")
+            path.write_text(
+                '[employee]\n# retained\n[timesheet]\ntask_name = "Old"\n[browser]\nprefer_edge = true\n[extra]\nvalue = 42\n',
+                encoding="utf-8",
+            )
             write_config(path, "abc", "New", "Billable")
             config = load_config(path)
             self.assertEqual(config["timesheet"]["charge_type"], "Billable")
