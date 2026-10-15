@@ -19,6 +19,9 @@ _SECTION_RE = re.compile(r"^\s*\[([^]]+)]\s*(?:#.*)?$")
 def load_config(path: Path) -> dict[str, Any]:
     """Load and validate a SilentSheet TOML configuration file."""
     config = tomllib.loads(path.read_text(encoding="utf-8-sig"))
+    for section in ("employee", "timesheet", "browser"):
+        if section in config and not isinstance(config[section], dict):
+            raise ValueError(f"{section} must be a table")
     employee_id = config.get("employee", {}).get("EMPLOYEE_ID")
     timesheet = config.get("timesheet", {})
     if not isinstance(employee_id, str) or not employee_id.strip():
@@ -30,11 +33,12 @@ def load_config(path: Path) -> dict[str, Any]:
     return config
 
 
-def _toml_string(value: str) -> str:
+def _toml_string(value: str | bool) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def _replace_owned_values(text: str, values: dict[tuple[str, str], str]) -> str:
+def _replace_owned_values(text: str, values: dict[tuple[str, str], Any]) -> str:
+    original = tomllib.loads(text)
     lines = text.splitlines()
     current_section = ""
     replaced: set[tuple[str, str]] = set()
@@ -63,12 +67,23 @@ def _replace_owned_values(text: str, values: dict[tuple[str, str], str]) -> str:
         ]
         if not missing:
             continue
-        if output and output[-1].strip():
-            output.append("")
-        output.append(f"[{section}]")
-        output.extend(f"{key} = {_toml_string(value)}" for key, value in missing)
+        header = next((i for i, line in enumerate(output)
+                       if (match := _SECTION_RE.match(line))
+                       and match.group(1).strip() == section), None)
+        additions = [f"{key} = {_toml_string(value)}" for key, value in missing]
+        if header is not None:
+            output[header + 1:header + 1] = additions
+        else:
+            output.extend(["", f"[{section}]", *additions])
 
-    return "\n".join(output).rstrip() + "\n"
+    content = "\n".join(output).rstrip() + "\n"
+    parsed = tomllib.loads(content)
+    for (section, key), value in values.items():
+        original.setdefault(section, {})[key] = value
+    # ponytail: preserve ordinary tables; refuse exotic TOML edits that alter other values.
+    if parsed != original:
+        raise ValueError("Unsupported TOML layout; configuration was not changed")
+    return content
 
 
 def write_config(

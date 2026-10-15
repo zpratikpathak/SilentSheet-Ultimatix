@@ -20,6 +20,35 @@ from config_manager import (
 
 
 class ConfigManagerTests(unittest.TestCase):
+    def test_partial_sections_preserve_edge_and_unknown_values(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.toml"
+            path.write_text('[employee]\n# retained\n[timesheet]\ntask_name = "Old"\n[browser]\nprefer_edge = true\n[extra]\nvalue = 42\n', encoding="utf-8")
+            write_config(path, "abc", "New", "Billable")
+            config = load_config(path)
+            self.assertEqual(config["timesheet"]["charge_type"], "Billable")
+            self.assertTrue(config["browser"]["prefer_edge"])
+            self.assertEqual(config["extra"]["value"], 42)
+            self.assertIn("# retained", path.read_text())
+
+    def test_invalid_toml_is_never_replaced(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.toml"
+            original = '[employee]\nEMPLOYEE_ID = "broken'
+            path.write_text(original)
+            with self.assertRaises(ValueError):
+                write_config(path, "abc", "New", "Billable")
+            self.assertEqual(path.read_text(), original)
+
+    def test_multiline_section_lookalike_cannot_corrupt_unknown_value(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "config.toml"
+            original = '[extra]\ntext = """\n[employee]\nEMPLOYEE_ID = "abc"\n"""\n'
+            path.write_text(original)
+            with self.assertRaises(ValueError):
+                write_config(path, "xyz", "New", "Billable")
+            self.assertEqual(path.read_text(), original)
+
     def test_mark_prefer_edge_persists_and_is_read_back(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "config.toml"

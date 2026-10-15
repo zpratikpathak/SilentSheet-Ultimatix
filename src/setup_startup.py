@@ -1,11 +1,15 @@
 """Add/remove SilentSheet from Windows Startup folder or Task Scheduler."""
 
 import getpass
+import csv
+import io
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from xml.sax.saxutils import escape
+import xml.etree.ElementTree as ET
 
 STARTUP_DIR = (
     Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup"
@@ -40,8 +44,11 @@ def generate_vbs() -> str:
 
 def install_startup() -> None:
     if SHORTCUT_DEST.exists():
+        if SHORTCUT_DEST.read_text() != generate_vbs():
+            raise RuntimeError(f"Startup shortcut belongs to another installation: {SHORTCUT_DEST}")
         print("Already installed in Startup folder.")
         return
+    STARTUP_DIR.mkdir(parents=True, exist_ok=True)
     SHORTCUT_DEST.write_text(generate_vbs())
     print(f"Installed: {SHORTCUT_DEST}")
     print("SilentSheet will now automatically fill your timesheet in background.")
@@ -49,6 +56,8 @@ def install_startup() -> None:
 
 def uninstall_startup() -> None:
     if SHORTCUT_DEST.exists():
+        if SHORTCUT_DEST.read_text() != generate_vbs():
+            raise RuntimeError(f"Refusing unrelated startup shortcut: {SHORTCUT_DEST}")
         SHORTCUT_DEST.unlink()
         print(f"Removed: {SHORTCUT_DEST}")
         print("SilentSheet will no longer run on startup.")
@@ -72,7 +81,7 @@ def generate_task_xml() -> str:
     The action launches wscript.exe with a VBS wrapper that runs pythonw.exe
     with window style 0 (hidden), preventing any console flash on unlock.
     """
-    user_id = _get_current_user()
+    user_id = escape(_get_current_user())
     wscript = r"C:\Windows\System32\wscript.exe"
 
     return f"""\
@@ -114,18 +123,42 @@ def generate_task_xml() -> str:
   <Actions Context="Author">
     <Exec>
       <Command>{wscript}</Command>
-      <Arguments>//B "{TASK_VBS_DEST}"</Arguments>
-      <WorkingDirectory>{PROJECT_DIR}</WorkingDirectory>
+    <Arguments>//B "{escape(str(TASK_VBS_DEST))}"</Arguments>
+    <WorkingDirectory>{escape(str(PROJECT_DIR))}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>"""
 
 
+def _owned_task() -> bool:
+    listing = subprocess.run(
+        ["schtasks", "/query", "/fo", "CSV", "/nh"],
+        capture_output=True, text=True, check=True, timeout=30,
+    )
+    if not any(row and row[0].casefold() == ("\\" + SCHED_TASK_NAME).casefold()
+               for row in csv.reader(io.StringIO(listing.stdout))):
+        return False
+    result = subprocess.run(
+        ["schtasks", "/query", "/tn", SCHED_TASK_NAME, "/xml"],
+        capture_output=True, text=True, check=True, timeout=30,
+    )
+    task = ET.fromstring(result.stdout)
+    ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
+    actions = task.findall("t:Actions/*", ns)
+    if (len(actions) != 1 or
+            actions[0].findtext("t:Arguments", namespaces=ns) != f'//B "{TASK_VBS_DEST}"' or
+            actions[0].findtext("t:WorkingDirectory", namespaces=ns) != str(PROJECT_DIR)):
+        raise RuntimeError("Scheduled task belongs to another installation")
+    return True
+
+
 def install_logon() -> None:
+    _owned_task()
     RUNTIME_DIR.mkdir(exist_ok=True)
     TASK_VBS_DEST.write_text(generate_vbs())
     xml_content = generate_task_xml()
-    tmp_path = Path(tempfile.gettempdir()) / "silentsheet_task.xml"
+    with tempfile.NamedTemporaryFile(prefix="silentsheet-task-", suffix=".xml", delete=False) as temporary:
+        tmp_path = Path(temporary.name)
     try:
         tmp_path.write_text(xml_content, encoding="utf-16")
         result = subprocess.run(
@@ -147,12 +180,14 @@ def install_logon() -> None:
                 "SilentSheet will now automatically fill your timesheet in background."
             )
         else:
-            print(f"Failed to create scheduled task: {result.stderr.strip()}")
+            raise RuntimeError(f"Failed to create scheduled task: {result.stderr.strip()}")
     finally:
         tmp_path.unlink(missing_ok=True)
 
 
 def uninstall_logon() -> None:
+    if not _owned_task():
+        return
     result = subprocess.run(
         ["schtasks", "/delete", "/tn", SCHED_TASK_NAME, "/f"],
         capture_output=True,
@@ -160,11 +195,8 @@ def uninstall_logon() -> None:
     )
     if result.returncode == 0:
         print(f"Scheduled task '{SCHED_TASK_NAME}' removed.")
-    elif (
-        "cannot find" not in result.stderr.lower()
-        and "does not exist" not in result.stderr.lower()
-    ):
-        print(f"Failed to remove scheduled task: {result.stderr.strip()}")
+    else:
+        raise RuntimeError(f"Failed to remove scheduled task: {result.stderr.strip()}")
     if TASK_VBS_DEST.exists():
         TASK_VBS_DEST.unlink()
 

@@ -1,108 +1,48 @@
-<p align="center">
-  <img src="favicon.ico" alt="SilentSheet" width="120">
-</p>
+# SilentSheet
 
-<h1 align="center">SilentSheet</h1>
-
-<p align="center">Auto-fill your Ultimatix timesheet on Windows startup or login. Logs in via EasyAuth, fills 9 hours, verifies, and submits.</p>
-
----
+Windows Ultimatix timesheet automation: EasyAuth approval, configured task, 9 hours, submit, then refresh and verify. Daily state prevents repeat submissions after successful verification. Review your task and hours before enabling automation.
 
 ## Requirements
 
-- Windows 10/11
-- Python 3.12+
-- Google Chrome
+- Windows 10/11, Python >=3.12, Chrome or Edge.
+- Ultimatix access and EasyAuth approval on your phone.
+- Network access for login, version checks, and downloads. Bundled wheels can satisfy setup dependencies; they do not make browser automation offline.
 
-## Quick Install
+## Install
 
-Open PowerShell, `cd` into an empty folder where you want SilentSheet to live, then paste:
+Run from an **empty folder** where SilentSheet should live:
 
 ```powershell
+mkdir "$HOME\SilentSheet"
+cd "$HOME\SilentSheet"
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/zpratikpathak/SilentSheet-Ultimatix/home/install.ps1 | iex"
 ```
 
-That's it. The installer will:
+This executes code from the repository's mutable `home` branch. Review the script first if you do not already trust that source. HTTPS and archive path checks are not a signed-release guarantee.
 
-1. Download the latest SilentSheet into the current folder
-2. Check prerequisites (Python, Google Chrome) and offer to install any missing via `winget`
-3. Create a virtual environment and install dependencies (`uv` is used automatically when available, otherwise `pip`)
-4. Prompt for your Employee ID, then auto-detect available tasks via EasyAuth
-5. Pick an auto-run mode: **Windows Startup** (for daily restart users) or **Windows Login** (for sleep / lid-close users)
-6. Open the GitHub page when finished
+Bootstrap verifies Python >=3.12, offers Python 3.12 through winget only after explicit consent, validates archive paths, extracts into the empty destination, then runs `manage.py setup`. It refuses linked destinations and archive links, traversal, duplicate paths, and excessive expanded size. Extraction/setup failures retain files for inspection; rerun setup rather than bootstrap in that nonempty folder.
 
-### Already cloned the repo?
-
-If you already have the project on disk (e.g. via `git clone`), just run the setup wizard directly from inside the folder:
+For an existing checkout or extracted release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup.ps1
+py -3.12 manage.py setup
 ```
 
-## Manual Usage
+Substitute an installed Python >=3.12 version or its full executable path for `py -3.12` throughout. Setup creates/reuses `.venv`, tries bundled wheels before online dependencies (uv if available, then pip), checks Chrome/Edge, configures Employee ID and task, and installs autorun. Missing browser installation requires consent. Task lookup supports manual configuration fallback. Setup does not submit a timesheet or open GitHub.
+
+## Run and configure
 
 ```powershell
-# Headless by default, with uv
-uv run python fill_timesheet.py
-
-# Headless by default, with pip/venv
 .\.venv\Scripts\python.exe fill_timesheet.py
-
-# Show the browser for troubleshooting
 .\.venv\Scripts\python.exe fill_timesheet.py --visible
+py -3.12 manage.py configure
+py -3.12 manage.py choose-task
+py -3.12 manage.py setup --silent
 ```
 
-The task scraper is a non-interactive protocol command: `python src\scrape_tasks.py <employee-id>`. It emits one `SCRAPE_RESULT:<json>` line. Use the **Update Task** action in a SilentSheet notification for the interactive picker; it updates `config.toml` and retries SilentSheet in the background.
+`configure` writes configuration without launching automation. `choose-task` fetches tasks, saves selection, and retries automation in the background; working environment/configuration required. Arrow keys/Enter select in Windows consoles; redirected input uses numbered choices. `--silent` setup requires complete configuration and still installs dependencies and autorun; it is not a dry run. `choose-task --silent` is rejected.
 
-### Auto-Run Management
-
-```powershell
-uv run python src\setup_startup.py install-startup   # Run on boot (Startup folder)
-uv run python src\setup_startup.py install-logon     # Run on login & unlock (Task Scheduler)
-uv run python src\setup_startup.py uninstall-all     # Remove all auto-run entries
-```
-
-**Windows Startup** places a script in the Startup folder -- runs once when you start your laptop.
-**Windows Login** creates a Task Scheduler task -- runs on every login and unlock, including after wake from sleep.
-
-### Uninstall
-
-```powershell
-.\uninstall.ps1
-```
-
-Removes all auto-run entries (Startup folder and Task Scheduler), config, logs, and the virtual environment.
-
-## Updating
-
-SilentSheet checks GitHub for a newer version every time it runs. When one is available, you'll get a Windows toast titled **"SilentSheet Update Available"** with an **Update Now** button:
-
-- Click the toast (or the **Update Now** button) and SilentSheet handles the rest: it stops any running background process, downloads the latest archive into a temp folder, overwrites the project files, re-runs setup to pick up any new dependencies, and opens the GitHub page when done.
-- Updates preserve `config.toml`, `runtime\`, logs, and the existing `.venv\` while replacing application files. A silent setup run recreates `.venv\` to ensure installed dependencies match the current release; generated daily state and launchers remain under `runtime\`.
-
-You can also trigger the same flow yourself at any time:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Update
-```
-
-
-## How It Works
-
-1. Waits for internet connectivity
-2. Checks if the timesheet was already filled today — exits early if so
-3. Checks GitHub for a newer version and shows an **Update Now** toast if one exists
-4. Opens the Ultimatix timesheet portal in Chrome
-5. Enters your Employee ID and initiates EasyAuth login
-6. Shows a toast notification with the EasyAuth number to approve on your phone
-7. Finds your configured task, fills 9 hours, and clicks Submit
-8. Refreshes the page and verifies the hours were saved
-9. Records successful completion in `runtime/.silentsheet_state.json` so later runs exit early that day
-10. If anything goes wrong, the user-facing toast stays short and friendly while a per-incident diagnostic report (with screenshot, page URL, and traceback) is saved to `logs/<datetime>_error.md` for later inspection
-
-## Configuration
-
-Generated by `setup.ps1`, or edit `config.toml` manually:
+`config.toml` example (see `example.config.toml`):
 
 ```toml
 [employee]
@@ -113,28 +53,80 @@ task_name = "Development"
 charge_type = "Billable"
 ```
 
-See `example.config.toml` for reference.
+## Autorun
 
-## Project Structure
+```powershell
+py -3.12 src\setup_startup.py install-startup
+py -3.12 src\setup_startup.py install-logon
+py -3.12 src\setup_startup.py uninstall-all
+```
 
+Startup folder runs at user sign-in, not machine boot before login. Scheduled task runs at logon/unlock. Setup preserves a detected existing mode; otherwise prompts. Removal checks ownership and can refuse legacy/mismatched registrations. Inspect those manually rather than deleting unrelated entries.
+
+## Maintenance and migration limits
+
+`manage.py update` is **stopped-application maintenance**, not an unattended live updater. It downloads from `home`, but still requires manual autorun removal first. Protocol/AUMID registrations do not block maintenance and need not be removed for updates. Run with base Python, not this installation's `.venv`. Git checkouts and linked paths are refused. `requirements.txt` must match byte-for-byte; parsed `project.dependencies` and `project.requires-python` in `pyproject.toml` must match. Version-only changes are allowed; updates do not rebuild or change `.venv`. New unreviewed Python modules can also be refused.
+
+The notification's Update action opens management with `sys._base_executable` (mapping `pythonw.exe` to console `python.exe`) before loading configuration/Selenium. Choose Task keeps the current venv interpreter, also using console `python.exe`. Update does **not** remove autorun or stop running automation; those checks still apply. No automatic process killing or full dependency-changing migration is provided.
+
+For archive installations, prepare maintenance as follows:
+
+1. Back up `config.toml`, `runtime`, and logs. Close SilentSheet and its browsers, including any app scripts launched through external Python. Identify and close Windows Script Host processes before maintenance.
+2. Remove autorun using `uninstall-all` above. If ownership checks fail, inspect the Startup shortcut and `SilentSheet` scheduled task before manually removing them.
+3. Open a fresh terminal without the project venv activated. Use an explicitly selected base interpreter:
+
+```powershell
+py -3.12 manage.py update
 ```
-├── install.ps1            # One-line bootstrap installer (download + run setup)
-├── setup.ps1              # Interactive setup wizard (also handles -Install / -Update)
-├── uninstall.ps1          # Clean uninstall
-├── fill_timesheet.py      # Main automation script (entry point)
-├── src/                   # Python helper modules
-│   ├── browser_session.py # Shared Chrome and EasyAuth session workflow
-│   ├── config_manager.py  # Canonical TOML reader/writer and setup CLI
-│   ├── scrape_tasks.py    # Detect available tasks from the timesheet
-│   ├── choose_task.ps1    # Interactive task-update host
-│   ├── task_workflow.ps1  # Shared PowerShell task picker and scraper runner
-│   ├── setup_startup.py   # Auto-run install/uninstall (Startup folder & Task Scheduler)
-│   ├── timesheet_common.py # Shared constants and daily-state helpers
-│   └── error_logger.py    # Shared diagnostic-report writer used by both Python scripts
-├── config.toml            # Your config (gitignored)
-├── example.config.toml    # Config template
-├── favicon.ico            # App icon for notifications
-├── pyproject.toml         # Project metadata & dependencies
-├── logs/                  # Per-incident diagnostic reports + screenshots (gitignored)
-└── runtime/               # Generated state, log, and VBS launchers (gitignored)
+
+Process checks ignore verified external Python executables, so unrelated external Python does not block maintenance. They cannot identify app scripts running under external Python: stopping those remains your responsibility. Interpreters inside the installation, Windows Script Host processes, and inaccessible interpreter/script-host candidates still block maintenance. Do not treat refusal as proof of a running SilentSheet process, or elevate merely to bypass checks.
+
+Successful update prints a backup path and preserves environment/user state. Re-enable autorun afterward. Failure attempts rollback and reports backup/rollback errors; recovery is not guaranteed after OS/storage failure. App startup refuses while `.silentsheet-management.lock` exists, before runtime dependencies, configuration, directories, or protocol dispatch. This startup check does not stop existing processes or eliminate launch races; offline maintenance remains required. A crash can leave the lock; investigate before removing it.
+
+For dependency-changing releases or legacy migration, use fresh setup in a separate empty directory. Disable old autorun first, retain backups, copy/review configuration, and optionally retain daily state to avoid a duplicate submission. Do not copy the old `.venv`. Verify the new setup before manually removing the old directory. Git checkout users should use their Git workflow instead of archive maintenance.
+
+## Uninstall
+
+Complete the same stopped-application, autorun-removal, and base-interpreter steps first. Protocol/AUMID removal is not a prerequisite:
+
+```powershell
+py -3.12 manage.py uninstall
+py -3.12 manage.py uninstall --purge
 ```
+
+Choose one command. Default removes explicitly owned application files, retaining config, logs, runtime, `.venv`, and unowned files. `--purge` additionally deletes only `config.toml` after confirmation; `--yes` skips that confirmation. Neither command recursively removes the installation directory. Backups can contain configuration; protect them accordingly. No promise of complete automatic cleanup or legacy in-place migration.
+
+Optional explicit registry cleanup after uninstall: inspect these per-user keys and delete them only if they belong to the removed installation. Shared names may belong to another SilentSheet installation. Management does not remove them automatically.
+
+```powershell
+reg query HKCU\Software\Classes\silentsheet /s
+reg query HKCU\Software\Classes\AppUserModelId\SilentSheet /s
+```
+
+After confirming ownership:
+
+```powershell
+reg delete HKCU\Software\Classes\silentsheet /f
+reg delete HKCU\Software\Classes\AppUserModelId\SilentSheet /f
+```
+
+Machine-wide registrations also do not block maintenance; ask their owner/administrator to handle any uninstall cleanup.
+
+## Runtime and troubleshooting
+
+- Waits for connectivity, checks release version, skips already-completed dates, requests EasyAuth, fills/submits and verifies hours.
+- “Mark as Done” marks today's completion/notification state without submitting. Previous-day or invalid notification dates are ignored.
+- Missing task notification opens `manage.py choose-task`; scraper emits one `SCRAPE_RESULT:<json>` line for management consumption.
+- State: `runtime/.silentsheet_state.json`; generated launchers: `runtime/`; diagnostics: `logs/`.
+- Reports/screenshots may contain employee or portal information. Review before sharing.
+- Browser/login success, scheduled task permissions, and network availability remain machine-dependent. Use `--visible` for diagnosis.
+
+## Files and checks
+
+`install.ps1` only bootstraps. `manage.py` routes setup/configuration/task selection/update/uninstall. `src/setup_workflow.py` owns setup; `src/installation.py` owns conservative maintenance; `src/setup_startup.py` owns autorun. Legacy `setup.ps1`, `uninstall.ps1`, `src/choose_task.ps1`, and `src/task_workflow.ps1` are replaced by these Python commands.
+
+```powershell
+py -3.12 -m unittest discover -s tests
+```
+
+Isolated protocol tests mock process launch and reject runtime dependency imports; they do not contact Ultimatix, submit hours, or install software.

@@ -16,6 +16,30 @@ from datetime import date
 from pathlib import Path
 from urllib.request import urlopen
 
+# ponytail: startup guard only; offline maintenance still requires stopping existing processes.
+if (Path(__file__).resolve().parent / ".silentsheet-management.lock").exists():
+    raise SystemExit("SilentSheet maintenance in progress; startup refused.")
+
+def _dispatch_management(argv: list[str]) -> bool:
+    parser = argparse.ArgumentParser(description="Fill today's Ultimatix timesheet")
+    parser.add_argument("action", nargs="?", help=argparse.SUPPRESS)
+    parser.add_argument("--visible", action="store_true", help="show the browser window")
+    args = parser.parse_args(argv)
+    command = {"silentsheet:update": "update", "silentsheet:choosetask": "choose-task"}.get(args.action)
+    if command is None:
+        return False
+    root = Path(__file__).resolve().parent
+    executable = sys._base_executable if command == "update" else sys.executable
+    subprocess.Popen(
+        [str(Path(executable).with_name("python.exe")), str(root / "manage.py"), command],
+        cwd=str(root), creationflags=subprocess.CREATE_NEW_CONSOLE,
+    )
+    return True
+
+# Maintenance dispatch must not import Selenium or read configuration.
+if __name__ == "__main__" and _dispatch_management(sys.argv[1:]):
+    raise SystemExit(0)
+
 try:
     import winreg
 except ImportError:  # pragma: no cover
@@ -103,9 +127,9 @@ def check_for_update() -> None:
                 notify(
                     "SilentSheet Update Available",
                     f"v{LOCAL_VERSION} → v{remote_version}. "
-                    "Click 'Update Now' to install.",
+                    "Manual maintenance required; see README before updating.",
                     launch=f"{PROTOCOL_NAME}:update",
-                    action_label="Update Now",
+                    action_label="Open Management",
                     action_launch=f"{PROTOCOL_NAME}:update",
                     duration="long",
                 )
@@ -218,40 +242,8 @@ def main(argv: list[str] | None = None) -> None:
         action = args.action.split(":", 1)[1]
         if action.startswith("markdone-"):
             _handle_mark_done(action[len("markdone-") :])
-        elif action == "choosetask":
-            # Launch the PowerShell task picker in a visible console window so
-            # the user gets arrow-key navigation. -ExecutionPolicy Bypass
-            # ensures it runs even if the user has the default Restricted
-            # CurrentUser policy.
-            choose_ps1 = SCRIPT_DIR / "src" / "choose_task.ps1"
-            subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(choose_ps1),
-                ],
-                cwd=str(SCRIPT_DIR),
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-            )
-        elif action == "update":
-            setup_ps1 = SCRIPT_DIR / "setup.ps1"
-            subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(setup_ps1),
-                    "-Update",
-                    "-Silent",
-                ],
-                cwd=str(SCRIPT_DIR),
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-            )
+        elif action in ("choosetask", "update"):
+            _dispatch_management([args.action])
         return
 
     if args.action:
